@@ -144,6 +144,14 @@ class PostgresStore:
             for r in self._q("SELECT DISTINCT name FROM metrics WHERE run_id=? ORDER BY 1", (run_id,), "all")
         ]
 
+    def run_progress(self):
+        rows = self._q(
+            "SELECT m.run_id, m.last_step, l.value FROM "
+            "(SELECT run_id, max(step) AS last_step FROM metrics GROUP BY run_id) m LEFT JOIN "
+            "(SELECT DISTINCT ON (run_id) run_id, value FROM metrics WHERE name = 'loss' AND layer = '' "
+            " ORDER BY run_id, step DESC) l ON l.run_id = m.run_id", (), "all")
+        return {r[0]: {"last_step": int(r[1]), "last_loss": r[2]} for r in rows}
+
     def max_step(self, run_id):
         r = self._q("SELECT max(step) FROM metrics WHERE run_id=?", (run_id,), "one")
         return int(r[0]) if r and r[0] is not None else -1

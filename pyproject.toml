@@ -31,7 +31,7 @@ trainscope = "trainscope_server.commands.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-trainscope_server = ["db/*.sql"]
+trainscope_server = ["db/*.sql", "ui/*"]
 
 [tool.ruff]
 line-length = 110

@@ -173,6 +173,9 @@ def create_app(
             or {}
         )
 
+    from . import dashboard
+
+    dashboard.register(app, store, authz, project_of)
     return app
 
 
@@ -186,6 +189,7 @@ def main() -> None:
     p.add_argument("--port", type=int, default=int(os.environ.get("TRAINSCOPE_PORT", 8765)))
     p.add_argument("--db", default=os.environ.get("TRAINSCOPE_DB", "trainscope.duckdb"))
     a = p.parse_args()
+    print(f"TrainScope: API and dashboard on http://{a.host}:{a.port}/ui/  (store: {a.db})", flush=True)
     uvicorn.run(create_app(open_store(a.db)), host=a.host, port=a.port, log_level="warning")
 
 

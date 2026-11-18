@@ -189,6 +189,15 @@ class DuckDBStore:
                 ).fetchall()
             ]
 
+    def run_progress(self) -> dict[str, dict[str, Any]]:
+        """Last step and last loss of every run, in one query (for run lists)."""
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT run_id, max(step), arg_max(value, step) FILTER (WHERE name = 'loss' AND layer = '') "
+                "FROM metrics GROUP BY run_id"
+            ).fetchall()
+        return {r[0]: {"last_step": int(r[1]), "last_loss": r[2]} for r in rows}
+
     def max_step(self, run_id: str) -> int:
         with self._conn() as c:
             r = c.execute("SELECT max(step) FROM metrics WHERE run_id=?", [run_id]).fetchone()

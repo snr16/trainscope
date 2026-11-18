@@ -47,6 +47,25 @@ The SDK never blocks or crashes training:
 - a daemon thread sends the batches;
 - if the server is unreachable, batches are spooled to `~/.trainscope/spool` and replayed later. Writes are idempotent, so retries never duplicate data.
 
+## Dashboard
+
+The ingest server also serves a web dashboard at **http://127.0.0.1:8765/ui/**. With a local DuckDB store:
+
+```bash
+trainscope-server --db trainscope.duckdb       # then open http://127.0.0.1:8765/ui/
+```
+
+With `docker compose up`, the same dashboard is served from the ingest container on port 8765.
+
+- **Run list:** every run, with live status, progress, last loss and a badge for detector findings. Search by name, project or likely cause, and filter by runs with issues, live runs or crashed runs.
+- **Findings:** each finding with its severity, step range, likely causes and the evidence behind it.
+- **Curves:** loss (train and eval), learning rate, gradient norm (measured before clipping), gradient carry-over and accuracy. Findings tied to a window of the run are shaded, and NaN steps are marked.
+- **Layers:** per-layer gradient norm, update ratio, weight norm, dead units and zero gradients. Outliers and frozen layers are highlighted.
+- **System and data:** time spent waiting on the data loader, step time, the memory floor, label balance across the run, and train/eval overlap.
+- **Control:** buttons to checkpoint, pause, resume or change the learning rate on a live run, and **Approve / Reject** for anything an assistant has requested.
+
+Set your name in Settings so approvals record who made them. If the server sets `TRAINSCOPE_TOKENS`, add the token there too.
+
 ## Using it from an assistant (MCP)
 
 The server implements MCP protocol `2026-07-28` (official Python SDK v2, `MCPServer`), and its handshake also accepts `2025-11-25` and older. It supports two transports:

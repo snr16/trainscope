@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrainScope</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Crect x='1' y='1' width='24' height='24' rx='6' fill='none' stroke='%232a78d6' stroke-width='2'/%3E%3Cpolyline points='5,17 9,15 12,16 15,9 18,12 21,6' fill='none' stroke='%232a78d6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <a class="logo" href="#" aria-label="TrainScope home">
+    <svg viewBox="0 0 26 26" aria-hidden="true"><rect x="1" y="1" width="24" height="24" rx="6" fill="none" stroke="currentColor" stroke-width="2"/><polyline points="5,17 9,15 12,16 15,9 18,12 21,6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>TrainScope</span>
+  </a>
+  <div class="top-status" id="conn" aria-live="polite"></div>
+  <div class="top-actions">
+    <button class="icon-btn" id="btn-menu" aria-label="Show runs" title="Runs">☰</button>
+    <button class="ghost" id="btn-settings" aria-haspopup="dialog">Settings</button>
+    <button class="ghost" id="btn-theme" aria-label="Toggle theme" title="Toggle light / dark">◐</button>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="sidebar" id="sidebar" aria-label="Runs">
+    <div class="side-head">
+      <input id="search" type="search" placeholder="Search runs, projects, causes" autocomplete="off" aria-label="Search runs">
+      <div class="filters" role="group" aria-label="Filter runs">
+        <button class="chip on" data-filter="all">All</button>
+        <button class="chip" data-filter="issues">Has issues</button>
+        <button class="chip" data-filter="running">Live</button>
+        <button class="chip" data-filter="crashed">Crashed</button>
+      </div>
+      <div class="side-meta" id="side-meta"></div>
+    </div>
+    <ul class="run-list" id="run-list"></ul>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="empty" id="welcome">
+      <h1>Pick a run</h1>
+      <p>Runs appear on the left as soon as a training script calls <code>ts.init()</code>. Runs with detector findings carry a red or amber badge.</p>
+      <div class="welcome-stats" id="welcome-stats"></div>
+    </div>
+    <div id="run-view" hidden></div>
+  </main>
+</div>
+
+<dialog id="settings">
+  <form method="dialog" class="dlg">
+    <h2>Settings</h2>
+    <label for="set-name">Your name <span class="hint">recorded when you approve or reject a command</span></label>
+    <input id="set-name" type="text" placeholder="e.g. priya" autocomplete="name">
+    <label for="set-token">API token <span class="hint">only needed if the server sets TRAINSCOPE_TOKENS</span></label>
+    <input id="set-token" type="password" placeholder="Bearer token" autocomplete="off">
+    <label class="row"><input id="set-live" type="checkbox" checked> Refresh live runs every 5 seconds</label>
+    <div class="dlg-actions"><button value="cancel" class="ghost">Cancel</button><button value="save" id="set-save" class="primary">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="lr-dialog">
+  <form method="dialog" class="dlg">
+    <h2>Change learning rate</h2>
+    <p class="hint">Applied at the next step boundary. Recorded as requested and approved by you.</p>
+    <label for="lr-value">New learning rate</label>
+    <input id="lr-value" type="number" step="any" min="0" placeholder="0.001">
+    <div class="dlg-actions"><button value="cancel" class="ghost">Cancel</button><button value="ok" class="primary">Queue change</button></div>
+  </form>
+</dialog>
+
+<div id="tip" role="status" aria-live="polite"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
