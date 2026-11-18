@@ -6,7 +6,7 @@ import numpy as np
 
 from .base import Detector, Finding, RunData, finite, trend
 
-_SERIES = ["sys/cuda_alloc_mb", "sys/mps_alloc_mb", "sys/gpu_mem_mb", "sys/proc_rss_mb", "mem/tracked_mb"]
+_SERIES = ["sys/cuda_alloc_mb", "sys/mps_alloc_mb", "sys/gpu_mem_mb", "sys/proc_footprint_mb", "sys/proc_rss_mb", "mem/tracked_mb"]
 
 
 def memory_floor(s):
@@ -40,7 +40,10 @@ class MemoryLeakDetector(Detector):
     }
 
     def run(self, data: RunData) -> list[Finding]:
+        has_footprint = len(finite(data.scalar("sys/proc_footprint_mb"))) >= self.min_samples
         for name in _SERIES:
+            if name == "sys/proc_rss_mb" and has_footprint:
+                continue  # footprint is RSS plus compressed/swapped pages; RSS alone moves with memory pressure
             s = finite(data.scalar(name))
             if len(s) < self.min_samples:
                 continue

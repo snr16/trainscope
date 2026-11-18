@@ -4,6 +4,7 @@ import numpy as np
 
 from trainscope_server.detectors import run_detectors
 from trainscope_server.detectors.amp import AmpOverflowDetector
+from trainscope_server.detectors.data import SuspiciousDataDetector
 from trainscope_server.detectors.dataloader import DataLoaderDetector
 from trainscope_server.detectors.divergence import DivergenceDetector
 from trainscope_server.detectors.frozen import FrozenLayerDetector, TrainModeDetector
@@ -144,6 +145,32 @@ def test_memory_leak():
     f = MemoryLeakDetector().run(data({"sys/proc_rss_mb": np.linspace(500, 900, 50)}))
     assert f and f[0].evidence["series"] == "sys/proc_rss_mb"
     assert MemoryLeakDetector().run(data({"sys/proc_rss_mb": np.full(50, 500.0)})) == []
+
+
+def test_memory_footprint_beats_rss_under_memory_pressure():
+    """macOS compresses a leaking process: its RSS falls while its footprint keeps growing. And when the footprint
+    is flat, RSS swinging with memory pressure must not be reported as a leak."""
+    leak = {
+        "sys/proc_footprint_mb": np.linspace(1500, 10_000, 60),
+        "sys/proc_rss_mb": np.linspace(180, 130, 60),
+    }
+    f = MemoryLeakDetector().run(data(leak))
+    assert f and f[0].evidence["series"] == "sys/proc_footprint_mb"
+    squeezed = {"sys/proc_footprint_mb": np.full(60, 300.0), "sys/proc_rss_mb": np.linspace(80, 400, 60)}
+    assert MemoryLeakDetector().run(data(squeezed)) == []
+
+
+def test_padding_mask_checked_against_the_inputs():
+    """A mask built with the wrong pad id marks nothing as padding although 15% of the input tokens are padding."""
+    cfg = {"task_type": "classification"}  # no hint from the config: the logged inputs alone must show it
+    bad = SuspiciousDataDetector().run(
+        data({"data/pad_ratio": np.zeros(20), "data/pad_token_ratio": np.full(20, 0.15)}, config=cfg)
+    )
+    assert any(f.detector == "no_padding_masked" and f.severity == "critical" for f in bad)
+    ok = SuspiciousDataDetector().run(
+        data({"data/pad_ratio": np.full(20, 0.15), "data/pad_token_ratio": np.full(20, 0.15)}, config=cfg)
+    )
+    assert not any(f.detector == "no_padding_masked" for f in ok)
 
 
 def test_amp_overflow():

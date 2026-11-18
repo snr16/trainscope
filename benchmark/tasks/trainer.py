@@ -385,6 +385,8 @@ def train(
                 attention_mask=m,
                 sample_ids=[train_ds.ids[i] for i in ids.tolist()],
                 num_classes=cfg.get("num_classes") if task != "lm" else None,
+                input_ids=batch[0] if task == "text_clf" else None,
+                pad_token_id=D.TEXT_PAD,
             )
             if step % 10 == 0:
                 run.print(f"step {step:5d} | loss {lv:.4f} | lr {sched.get_last_lr()[0]:.3g}")

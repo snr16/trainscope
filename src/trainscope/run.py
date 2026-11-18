@@ -293,6 +293,8 @@ class Run:
         attention_mask: Any = None,
         sample_ids: Iterable[Any] | None = None,
         num_classes: int | None = None,
+        input_ids: Any = None,
+        pad_token_id: int | None = None,
     ) -> None:
         """Data statistics: label distribution, padding ratio, a few sample ids. Sampled every data_every steps."""
         if step % self.data_every != 0:
@@ -322,6 +324,12 @@ class Run:
                 )
                 pad = 1.0 - float(m.mean())
                 self._metric("data/pad_ratio", "", pad, step)
+            if input_ids is not None and pad_token_id is not None:
+                # what the inputs really contain, independent of the mask: a mask built with the wrong pad id
+                # shows up as pad_token_ratio > 0 while pad_ratio (from the mask) stays at 0
+                ids_ = input_ids.detach() if hasattr(input_ids, "detach") else np.asarray(input_ids)
+                self._metric("data/pad_token_ratio", "", float((ids_ == pad_token_id).float().mean()
+                             if hasattr(ids_, "float") else (ids_ == pad_token_id).mean()), step)
             if sample_ids is not None:
                 ids = [str(s) for s in list(sample_ids)[:8]]
                 self.event("data_samples", {"ids": ids}, step)

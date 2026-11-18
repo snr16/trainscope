@@ -265,6 +265,7 @@ class TrainScopeTools:
             "sys/gpu_mem_mb",
             "sys/cuda_alloc_mb",
             "sys/mps_alloc_mb",
+            "sys/proc_footprint_mb",
             "sys/proc_rss_mb",
             "sys/cpu",
             "mem/tracked_mb",
@@ -290,7 +291,7 @@ class TrainScopeTools:
             parts.append(f"step time median {out['step_time']['median']}s")
         mem_check = self._detector_check(run_id, "memory_leak")
         leaking = {f.evidence.get("series") for f in mem_check[1]} if mem_check else set()
-        for m in ("sys/cuda_alloc_mb", "sys/gpu_mem_mb", "sys/proc_rss_mb", "mem/tracked_mb"):
+        for m in ("sys/cuda_alloc_mb", "sys/gpu_mem_mb", "sys/proc_footprint_mb", "sys/proc_rss_mb", "mem/tracked_mb"):
             if m in out:
                 # raw RSS is spiky; its floor (rolling minimum) only rises when memory is really retained.
                 # "rising" is the memory-leak detector's verdict (same thresholds, incl. detectors.yaml)

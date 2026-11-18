@@ -38,19 +38,20 @@ class SuspiciousDataDetector(Detector):
                     self.conf_extreme_padding,
                 )
             )
-        if (
-            len(pad) >= 3
-            and float(pad.median()) < self.no_pad_ratio
-            and data.cfg("task_type") == "padded_seq"
-        ):
+        tok = finite(data.scalar("data/pad_token_ratio"))
+        tok_med = float(tok.median()) if len(tok) >= 3 else None
+        # padded inputs: measured from the input ids when the run logs them, else declared by the config
+        padded = tok_med > self.no_pad_ratio if tok_med is not None else data.cfg("task_type") == "padded_seq"
+        if len(pad) >= 3 and float(pad.median()) < self.no_pad_ratio and padded:
             out.append(
                 Finding(
                     "no_padding_masked",
-                    "warning",
+                    "critical" if tok_med is not None else "warning",
                     int(pad.index[0]),
                     int(pad.index[-1]),
-                    "attention mask marks no tokens as padding although inputs are padded",
-                    {"median_pad_ratio": float(pad.median())},
+                    "attention mask marks no tokens as padding although inputs are padded"
+                    + (f" ({tok_med:.0%} of input tokens are the pad token)" if tok_med is not None else ""),
+                    {"median_pad_ratio": float(pad.median()), "median_pad_token_ratio": tok_med},
                     ["bad_padding_mask"],
                     self.conf_no_padding_masked,
                 )

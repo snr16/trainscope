@@ -2,11 +2,37 @@
 
 from __future__ import annotations
 
+import ctypes
 import os
+import sys
 import threading
 from collections.abc import Callable
+from typing import Any
 
 import psutil
+
+
+def _load_libproc() -> Any:
+    if sys.platform != "darwin":
+        return None
+    try:
+        return ctypes.CDLL("/usr/lib/libproc.dylib")
+    except OSError:
+        return None
+
+
+_LIBPROC = _load_libproc()
+
+
+def _footprint_mb() -> float | None:
+    """macOS physical footprint (what Activity Monitor shows). Unlike RSS it includes compressed and swapped
+    pages, so a leak stays visible when the system is under memory pressure and squeezes the process's RSS."""
+    if _LIBPROC is None:
+        return None
+    buf = (ctypes.c_uint64 * 64)()
+    if _LIBPROC.proc_pid_rusage(os.getpid(), 2, ctypes.byref(buf)) != 0:  # RUSAGE_INFO_V2
+        return None
+    return buf[2 + 7] / 2**20  # after the 16-byte uuid: ri_phys_footprint is the 8th uint64 field
 
 
 class SystemSampler(threading.Thread):
@@ -35,6 +61,9 @@ class SystemSampler(threading.Thread):
             "sys/ram_pct": psutil.virtual_memory().percent,
             "sys/proc_rss_mb": self.proc.memory_info().rss / 2**20,
         }
+        fp = _footprint_mb()
+        if fp is not None:
+            out["sys/proc_footprint_mb"] = fp
         if self._nvml is not None:
             try:
                 util = self._nvml.nvmlDeviceGetUtilizationRates(self._handle)
