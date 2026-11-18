@@ -1,0 +1,170 @@
+# Failure scenarios with ground truth.
+# Each scenario: cause (from trainscope_server.taxonomy.CAUSES), the tasks it applies to, how to inject it at
+# each severity (public config overrides and/or hidden code bugs), the affected component, and accepted fixes.
+# Scenario ids never reach run names, configs or logs.
+
+healthy:
+  cause: healthy
+  tasks: [vision, text_clf, lm]
+  severities:
+    default: {cfg: {}}
+    alt_sched: {cfg: {scheduler: constant, warmup_steps: 0}}
+    accum: {cfg: {grad_accum: 2, total_steps: 200}}
+  component: none
+  fixes: [{type: none}]
+
+lr_too_high:
+  cause: lr_too_high
+  tasks: [vision, text_clf, lm]
+  severities:
+    mild: {lr_mult: 10}
+    severe: {lr_mult: 50}
+    extreme: {lr_mult: 200}
+  component: config.lr
+  fixes: [{type: config_change, field: lr, value: default}]
+
+missing_warmup:
+  cause: missing_warmup
+  tasks: [text_clf, lm]
+  severities:
+    default: {cfg: {warmup_steps: 60}, lr_mult: 3, bugs: [missing_warmup]}
+  component: code.lr_scheduler
+  fixes: [{type: code_fix, name: missing_warmup}]
+
+scheduler_misstep:
+  cause: scheduler_misstep
+  tasks: [vision, text_clf, lm]
+  severities:
+    default: {bugs: [scheduler_misstep]}
+  component: code.lr_scheduler
+  fixes: [{type: code_fix, name: scheduler_misstep}]
+
+fp16_no_loss_scaling:
+  cause: fp16_no_loss_scaling
+  tasks: [vision, text_clf]
+  severities:
+    default: {cfg: {precision: fp16}, bugs: [fp16_no_loss_scaling]}
+  component: config.precision
+  fixes: [{type: config_change, field: precision, value: fp32}, {type: code_fix, name: fp16_no_loss_scaling}]
+
+nan_from_op:
+  cause: nan_from_op
+  tasks: [vision]
+  severities:
+    default: {bugs: [nan_from_op]}
+  component: model.per_sample_normalization
+  fixes: [{type: code_fix, name: nan_from_op}]
+
+exploding_no_clip:
+  cause: exploding_no_clip
+  tasks: [lm, text_clf]
+  severities:
+    default: {cfg: {grad_clip: null, optimizer: sgd, momentum: 0.9}, lr_abs: 1.0}
+  component: config.grad_clip
+  fixes: [{type: config_change, field: grad_clip, value: 1.0}]
+
+frozen_layers:
+  cause: frozen_layers
+  tasks: [vision, text_clf, lm]
+  severities:
+    default: {bugs: [frozen_layers]}
+  component: model.backbone
+  fixes: [{type: code_fix, name: frozen_layers}]
+
+double_softmax:
+  cause: double_softmax
+  tasks: [vision, text_clf]
+  severities:
+    default: {bugs: [double_softmax]}
+  component: model.head
+  fixes: [{type: code_fix, name: double_softmax}]
+
+bad_init:
+  cause: bad_init
+  tasks: [vision, text_clf, lm]
+  severities:
+    default: {bugs: [bad_init]}
+  component: model.init
+  fixes: [{type: code_fix, name: bad_init}]
+
+shuffled_labels:
+  cause: shuffled_labels
+  tasks: [vision, text_clf]
+  severities:
+    default: {bugs: [shuffled_labels]}
+  component: data.labels
+  fixes: [{type: code_fix, name: shuffled_labels}]
+
+val_leakage:
+  cause: val_leakage
+  tasks: [vision, text_clf]
+  severities:
+    default: {cfg: {train_size: 600}, bugs: [val_leakage]}
+  component: data.split
+  fixes: [{type: code_fix, name: val_leakage}]
+
+missing_normalization:
+  cause: missing_normalization
+  tasks: [vision]
+  severities:
+    default: {bugs: [missing_normalization]}
+  component: data.preprocessing
+  fixes: [{type: code_fix, name: missing_normalization}]
+
+bad_padding_mask:
+  cause: bad_padding_mask
+  tasks: [text_clf]
+  severities:
+    default: {bugs: [bad_padding_mask]}
+  component: data.attention_mask
+  fixes: [{type: code_fix, name: bad_padding_mask}]
+
+missing_zero_grad:
+  cause: missing_zero_grad
+  tasks: [vision, text_clf, lm]
+  severities:
+    default: {bugs: [missing_zero_grad]}
+  component: code.training_loop
+  fixes: [{type: code_fix, name: missing_zero_grad}]
+
+grad_accum_unscaled:
+  cause: grad_accum_unscaled
+  tasks: [vision]
+  severities:
+    default: {cfg: {grad_accum: 8, grad_clip: null}, lr_mult: 2, bugs: [grad_accum_unscaled]}
+  component: code.training_loop
+  fixes: [{type: code_fix, name: grad_accum_unscaled}]
+
+eval_mode_training:
+  cause: eval_mode_training
+  tasks: [vision, text_clf]
+  severities:
+    default: {bugs: [eval_mode_training]}
+  component: code.training_loop
+  fixes: [{type: code_fix, name: eval_mode_training}]
+
+overfitting:
+  cause: overfitting
+  tasks: [vision, text_clf]
+  severities:
+    default: {cfg: {train_size: 200, dropout: 0.0, weight_decay: 0.0, total_steps: 400, scheduler: constant,
+                    warmup_steps: 0, eval_every: 20}}
+  component: data.train_size
+  fixes: [{type: config_change, field: train_size, value: default}, {type: config_change, field: dropout, value: 0.3},
+          {type: config_change, field: weight_decay, value: 0.05}]
+
+dataloader_bottleneck:
+  cause: dataloader_bottleneck
+  tasks: [vision, text_clf]
+  severities:
+    default: {bugs: [heavy_transform], cfg: {total_steps: 150}}
+  component: data.loader
+  fixes: [{type: code_fix, name: dataloader_bottleneck}, {type: config_change, field: num_workers, value: 4}]
+
+memory_leak:
+  cause: memory_leak
+  tasks: [vision, lm]
+  severities:
+    default: {bugs: [memory_leak]}
+  component: code.training_loop
+  fixes: [{type: code_fix, name: memory_leak}]

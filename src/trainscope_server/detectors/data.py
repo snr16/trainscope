@@ -24,7 +24,7 @@ class SuspiciousDataDetector(Detector):
                     0.5,
                 )
             )
-        if len(pad) >= 3 and float(pad.median()) < 1e-6 and data.cfg("task_type") == "lm_padded":
+        if len(pad) >= 3 and float(pad.median()) < 1e-6 and data.cfg("task_type") == "padded_seq":
             out.append(
                 Finding(
                     "no_padding_masked",
