@@ -13,7 +13,9 @@ class MemoryLeakDetector(Detector):
 
     name = "memory_leak"
 
-    def __init__(self, min_growth_mb: float = 100.0, min_r: float = 0.8):
+    def __init__(self, min_growth_mb: float = 100.0, min_r: float = 0.5):
+        # dev set: non-leaking runs grew their RSS floor by <=29 MB (9%), leaks by >=138 MB (33%), often
+        # in steps (r ~0.6), so the size of the growth does the work and the trend bar stays loose
         self.min_growth_mb, self.min_r = min_growth_mb, min_r
 
     def run(self, data: RunData) -> list[Finding]:
@@ -21,7 +23,7 @@ class MemoryLeakDetector(Detector):
             s = finite(data.scalar(name))
             if len(s) < 16:
                 continue
-            s = s.iloc[len(s) // 10:]  # ignore warm-up allocations
+            s = s.iloc[len(s) // 10 :]  # ignore warm-up allocations
             w = max(5, len(s) // 8)
             floor = s.rolling(w).min().dropna()
             if len(floor) < 4:
@@ -30,10 +32,24 @@ class MemoryLeakDetector(Detector):
             growth = end - start
             slope, r = trend(floor)
             if growth > self.min_growth_mb and growth > 0.2 * max(start, 1.0) and r > self.min_r:
-                return [Finding(
-                    self.name, "critical" if growth > start else "warning", int(floor.index[0]), int(floor.index[-1]),
-                    f"{name} floor grew steadily by {growth:.0f} MB ({start:.0f} -> {end:.0f}, r={r:.2f}, "
-                    f"{slope * 1000:.0f} MB per 1k steps)",
-                    {"series": name, "floor_start_mb": start, "floor_end_mb": end, "peak_mb": float(s.max()),
-                     "slope_mb_per_step": slope, "trend_r": r}, ["memory_leak"], 0.8)]
+                return [
+                    Finding(
+                        self.name,
+                        "critical" if growth > start else "warning",
+                        int(floor.index[0]),
+                        int(floor.index[-1]),
+                        f"{name} floor grew steadily by {growth:.0f} MB ({start:.0f} -> {end:.0f}, r={r:.2f}, "
+                        f"{slope * 1000:.0f} MB per 1k steps)",
+                        {
+                            "series": name,
+                            "floor_start_mb": start,
+                            "floor_end_mb": end,
+                            "peak_mb": float(s.max()),
+                            "slope_mb_per_step": slope,
+                            "trend_r": r,
+                        },
+                        ["memory_leak"],
+                        0.8,
+                    )
+                ]
         return []
