@@ -39,3 +39,34 @@ def test_cap_truncates_lists():
     obj = {"points": list(range(10000)), "summary": "x"}
     out = cap(obj, 2000)
     assert out.get("_truncated") and len(out["points"]) < 10000
+
+
+def test_hidden_data_signals_also_hide_sample_id_events(tmp_path):
+    from trainscope_mcp.tools import TrainScopeTools
+    from trainscope_server.db import open_store
+
+    st = open_store(str(tmp_path / "x.duckdb"))
+    st.upsert_run({"id": "r", "project": "p"})
+    st.write_metrics(
+        [{"run_id": "r", "step": s, "ts": 0, "name": "loss", "layer": "", "value": 1.0} for s in range(5)]
+    )
+    st.write_events(
+        [
+            {
+                "run_id": "r",
+                "step": 0,
+                "ts": 0,
+                "type": "dataset_ids",
+                "payload": {"split": "train", "ids": ["a"]},
+            },
+            {
+                "run_id": "r",
+                "step": 0,
+                "ts": 0,
+                "type": "dataset_ids",
+                "payload": {"split": "eval", "ids": ["a"]},
+            },
+        ]
+    )
+    assert any(f["detector"] == "split_overlap" for f in TrainScopeTools(st).get_findings("r")["findings"])
+    assert not TrainScopeTools(st, hidden_signals={"data"}).get_findings("r")["findings"]

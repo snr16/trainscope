@@ -138,8 +138,14 @@ def test_fix_value_takes_leading_number_only():
 
     from benchmark.fixes.apply import FixError, apply_fix
 
-    cfg, _ = apply_fix("vision", {"lr": 1.0}, [], {"type": "config_change", "field": "lr",
-                                                    "value": "1e-3 (or 3e-4); 0.04 is too high"})
+    cfg, _ = apply_fix(
+        "vision",
+        {"lr": 1.0},
+        [],
+        {"type": "config_change", "field": "lr", "value": "1e-3 (or 3e-4); 0.04 is too high"},
+    )
     assert cfg["lr"] == 1e-3
     with pytest.raises(FixError):  # prose without a leading number is not guessed at
-        apply_fix("vision", {}, [], {"type": "config_change", "field": "dropout", "value": "add more dropout"})
+        apply_fix(
+            "vision", {}, [], {"type": "config_change", "field": "dropout", "value": "add more dropout"}
+        )

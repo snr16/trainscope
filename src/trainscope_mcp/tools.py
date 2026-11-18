@@ -23,6 +23,11 @@ SIGNAL_GROUPS: dict[str, tuple[str, ...]] = {
     "data": ("data/",),
 }
 
+SIGNAL_EVENTS: dict[str, tuple[str, ...]] = {
+    "gradients": ("nonfinite_grad",),
+    "data": ("data_samples", "dataset_ids"),
+}
+
 KEY_SCALARS = ["loss", "eval/loss", "eval/accuracy", "train/accuracy", "lr", "grad/global_norm"]
 
 
@@ -30,6 +35,8 @@ class TrainScopeTools:
     def __init__(self, store: Storage, hidden_signals: set[str] | None = None, max_chars: int = 12000):
         self.store = store
         self.hidden = tuple(p for g in (hidden_signals or set()) for p in SIGNAL_GROUPS.get(g, ()))
+        # event types that belong to a signal family (hidden together with its metrics in ablations)
+        self.hidden_events = {e for g in (hidden_signals or set()) for e in SIGNAL_EVENTS.get(g, ())}
         self.max_chars = max_chars
 
     # ------------------------------------------------------------------ helpers
@@ -41,6 +48,11 @@ class TrainScopeTools:
         if self.hidden and len(df):
             df = df[~df["name"].str.startswith(self.hidden)]
         return df
+
+    def _events(self, run_id: str, type: str | None = None) -> list[dict[str, Any]]:
+        if type in self.hidden_events:
+            return []
+        return [e for e in self.store.events(run_id, type) if e["type"] not in self.hidden_events]
 
     def _run(self, run_id: str) -> dict[str, Any]:
         r = self.store.get_run(run_id)
@@ -54,7 +66,7 @@ class TrainScopeTools:
 
     def _findings(self, run_id: str) -> list[dict[str, Any]]:
         run = self._run(run_id)
-        data = RunData(self._df(run_id), run.get("config"), self.store.events(run_id))
+        data = RunData(self._df(run_id), run.get("config"), self._events(run_id))
         return [f.to_dict(run_id) for f in run_detectors(data)]
 
     def _out(self, d: dict[str, Any]) -> dict[str, Any]:
@@ -110,7 +122,7 @@ class TrainScopeTools:
                         else None,
                     }
         cfg = self._public_config(run.get("config") or {})
-        events = self.store.events(run_id)
+        events = self._events(run_id)
         ev_counts: dict[str, int] = {}
         for e in events:
             ev_counts[e["type"]] = ev_counts.get(e["type"], 0) + 1
@@ -309,7 +321,7 @@ class TrainScopeTools:
             h = max(1, len(wide) // 2)
             out["label_distribution_first_half"] = {k: _r(v, 3) for k, v in wide.iloc[:h].mean().items()}
             out["label_distribution_second_half"] = {k: _r(v, 3) for k, v in wide.iloc[h:].mean().items()}
-        samples = self.store.events(run_id, "data_samples")
+        samples = self._events(run_id, "data_samples")
         if samples:
             out["sample_ids"] = [{"step": e["step"], "ids": e["payload"].get("ids", [])} for e in samples[:3]]
             seen: dict[str, int] = {}
