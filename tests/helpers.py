@@ -19,7 +19,7 @@ def frame(
         st = steps if steps is not None else range(0, len(vals) * every, every)
         rows += [
             {"step": s, "ts": float(s), "name": name, "layer": "", "value": float(v)}
-            for s, v in zip(st, vals)
+            for s, v in zip(st, vals, strict=False)
         ]
     for name, per_layer in (layers or {}).items():
         for layer, vals in per_layer.items():

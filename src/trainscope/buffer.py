@@ -41,7 +41,8 @@ class RingBuffer:
         self.events.append(rec)
 
     def drain(self, max_items: int) -> dict[str, list[dict[str, Any]]]:
-        out_m, out_e = [], []
+        out_m: list[dict[str, Any]] = []
+        out_e: list[dict[str, Any]] = []
         try:
             while len(out_m) < max_items:
                 out_m.append(self.metrics.popleft())

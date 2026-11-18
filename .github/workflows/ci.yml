@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 4 * * *"   # nightly mini-benchmark
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: |
+          pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
+          pip install "numpy<2" -e ".[server,mcp,dev,bench]"
+      - name: Lint
+        run: ruff check .
+      - name: Type check
+        run: mypy src/trainscope src/trainscope_server src/trainscope_mcp
+      - name: Tests (incl. integration + reliability)
+        run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t trainscope:ci .
+
+  mini-benchmark:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
+          pip install "numpy<2" -e ".[server,mcp,dev,bench]"
+      - name: Generate a few scenarios
+        run: >
+          python -m benchmark.run_scenarios --split dev --seeds 0 --workers 2 --max-steps 120
+          --scenarios healthy lr_too_high missing_zero_grad frozen_layers --tasks vision
+      - name: Detector-only evaluation
+        run: python -m eval.harness --split dev --conditions E --tag nightly
+      - name: Leakage check
+        run: python -m benchmark.leakage_check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-results
+          path: results/eval/

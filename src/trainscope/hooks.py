@@ -101,7 +101,11 @@ class ModelWatcher:
         layers: list[str] = []
         with torch.no_grad():
             for layer, params in self.groups.items():
-                gsq = wsq = usq = zeros = numel = None
+                gsq: Any = None
+                wsq: Any = None
+                usq: Any = None
+                zeros: Any = None
+                numel: Any = None
                 nonfinite = None
                 for n, p in params:
                     w = p.detach()

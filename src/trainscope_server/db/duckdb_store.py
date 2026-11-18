@@ -110,7 +110,8 @@ class DuckDBStore:
         return run_out(row) if row else None
 
     def list_runs(self, project: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
-        q, args = f"SELECT {', '.join(RUN_COLS)} FROM runs WHERE 1=1", []
+        q = f"SELECT {', '.join(RUN_COLS)} FROM runs WHERE 1=1"
+        args: list[Any] = []
         if project:
             q, args = q + " AND project=?", args + [project]
         if status:
@@ -243,7 +244,8 @@ class DuckDBStore:
         return command_out(row) if row else None
 
     def list_commands(self, run_id: str | None = None, status: str | None = None) -> list[dict[str, Any]]:
-        q, args = f"SELECT {', '.join(COMMAND_COLS)} FROM commands WHERE 1=1", []
+        q = f"SELECT {', '.join(COMMAND_COLS)} FROM commands WHERE 1=1"
+        args: list[Any] = []
         if run_id:
             q, args = q + " AND run_id=?", args + [run_id]
         if status:

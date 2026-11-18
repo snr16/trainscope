@@ -169,7 +169,9 @@ def layer_table(df: pd.DataFrame, top: int = 15) -> dict[str, Any]:
                 outliers.append({"layer": layer, "metric": col, "value": 0.0, "note": "not updating"})
     vals = df["value"].astype(float)
     for _, r in df[~np.isfinite(vals) & vals.notna()].iterrows():
-        outliers.append({"layer": r["layer"], "metric": r["name"], "value": str(r["value"]), "note": "non-finite"})
+        outliers.append(
+            {"layer": r["layer"], "metric": r["name"], "value": str(r["value"]), "note": "non-finite"}
+        )
     nan_rows = df[vals.isna()]
     for _, r in nan_rows.iterrows():
         outliers.append({"layer": r["layer"], "metric": r["name"], "value": "nan", "note": "non-finite"})

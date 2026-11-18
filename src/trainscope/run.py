@@ -76,10 +76,10 @@ class Run:
         self.config = dict(config or {})
         self.step = -1
         self.data_every = max(1, data_every)
-        self.optimizer = None
-        self.model = None
-        self.scaler = None
-        self.watcher = None
+        self.optimizer: Any = None
+        self.model: Any = None
+        self.scaler: Any = None
+        self.watcher: Any = None
         self._checkpoint_fn: Callable[[str], None] | None = None
         self.checkpoint_dir = Path(checkpoint_dir or os.environ.get("TRAINSCOPE_CKPT_DIR", "checkpoints"))
         self._pause_requested = False
@@ -110,7 +110,7 @@ class Run:
             log.warning("trainscope: could not create %s sink (%s); telemetry disabled", mode, e)
             self.sink = NullSink()
 
-        self._run_record = {
+        self._run_record: dict[str, Any] = {
             "id": self.id,
             "project": project,
             "name": self.name,
@@ -123,7 +123,7 @@ class Run:
         self._register()
 
         self.buffer = RingBuffer()
-        spool = Path(spool_dir or os.environ.get("TRAINSCOPE_SPOOL", Path.home() / ".trainscope" / "spool"))
+        spool = Path(spool_dir or os.environ.get("TRAINSCOPE_SPOOL") or Path.home() / ".trainscope" / "spool")
         self.flusher = Flusher(self.buffer, self, spool / f"{self.id}.jsonl", interval=flush_interval)
         self.flusher.start()
         self.sampler = None
@@ -246,7 +246,7 @@ class Run:
             self._metric(k, "", v)
             if k == "loss" and not math.isfinite(v) and not self._nan_reported:
                 self._nan_reported = True
-                where = self.watcher.locate_nonfinite() if self.watcher else {}
+                where: dict[str, Any] = self.watcher.locate_nonfinite() if self.watcher else {}
                 self.event("nonfinite_loss", {"value": str(v), **where})
         if self._last_t is not None:
             dt = now - self._last_t

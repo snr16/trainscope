@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 
@@ -29,7 +30,7 @@ class DivergenceDetector(Detector):
             pre = fl[fl.index < first]
             grad = data.scalar("grad/global_norm")
             gpre = finite(grad[grad.index < first])
-            ev = {
+            ev: dict[str, Any] = {
                 "first_nonfinite_step": first,
                 "last_finite_loss": float(pre.iloc[-1]) if len(pre) else None,
                 "loss_at_start": float(fl.iloc[0]) if len(fl) else None,

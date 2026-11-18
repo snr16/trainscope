@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import numpy as np
 
@@ -29,7 +30,7 @@ class PlateauDetector(Detector):
         upd = data.layers("weight/update_ratio")
         med_upd = float(np.nanmedian(upd.to_numpy())) if not upd.empty else None
         grad = finite(data.scalar("grad/global_norm"))
-        ev = {
+        ev: dict[str, Any] = {
             "initial_loss": head,
             "final_loss": tail,
             "rel_drop": (head - tail) / abs(head) if head else 0.0,
