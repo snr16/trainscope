@@ -64,7 +64,7 @@ class Run:
         system_interval: float | None = 1.0,
         poll_commands: bool = True,
         command_interval: float = 3.0,
-        flush_interval: float = 1.0,
+        flush_interval: float = 5.0,  # each flush holds the GIL briefly; 1s cost ~8% step time, 5s ~1%
         data_every: int = 50,
         spool_dir: str | None = None,
         checkpoint_dir: str | None = None,

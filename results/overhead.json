@@ -1,0 +1,24 @@
+{
+  "device": "mps",
+  "width": 32,
+  "batch": 64,
+  "steps": 300,
+  "results": {
+    "off": {
+      "median_step_ms": 16.865916999904584,
+      "overhead_pct": 0.0
+    },
+    "dense (grad 1, act 10)": {
+      "median_step_ms": 88.39145799993275,
+      "overhead_pct": 424.0833214134328
+    },
+    "default (grad 50, act 200)": {
+      "median_step_ms": 17.0712495000771,
+      "overhead_pct": 1.2174404758050095
+    },
+    "sparse (grad 200, act 1000)": {
+      "median_step_ms": 17.114624500209175,
+      "overhead_pct": 1.474615938795365
+    }
+  }
+}
