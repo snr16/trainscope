@@ -84,7 +84,9 @@ def main(argv: list[str] | None = None) -> None:
             "cause": r["cause"],
         }
         jobs.append({"key": key, "truth": t, "fix": d.get("fix")})
-    out_path = a.results.with_suffix(".verify.jsonl")
+    # one output file per condition set, so verifying another condition never overwrites earlier verdicts
+    conds = "".join(sorted(a.conditions or {r["condition"] for r in rows}))
+    out_path = a.results.with_suffix(f".verify-{conds}.jsonl")
     # reuse earlier verdicts for identical (run, fix) pairs; only re-check ones the verifier itself rejected
     # (invalid format), since those are the ones a verifier change can affect
     previous: dict[str, dict[str, Any]] = {}
