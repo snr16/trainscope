@@ -17,6 +17,8 @@ class ExplodingGradientDetector(Detector):
         "growth_r": 0.9,  # correlation of grad norm with step above this = steady growth
         "growth_min_x": 4.0,  # ... and the last value at least this x the early median
         "growth_min_samples": 8,  # samples needed for the growth check
+        "conf_exploding": 0.7,  # ranking weight: gradient norm blew up
+        "conf_growth": 0.85,  # ranking weight: gradient norm grows steadily
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -65,7 +67,7 @@ class ExplodingGradientDetector(Detector):
                     ["exploding_no_clip", "lr_too_high", "missing_zero_grad"]
                     if clip_off
                     else ["lr_too_high", "missing_zero_grad", "exploding_no_clip"],
-                    0.7,
+                    self.conf_exploding,
                 )
             )
         # steady, near-linear growth of the gradient norm: accumulation without zero_grad / unscaled accumulation
@@ -88,7 +90,7 @@ class ExplodingGradientDetector(Detector):
                         "last": float(g.iloc[-1]),
                     },
                     ["missing_zero_grad", "grad_accum_unscaled"],
-                    0.85,
+                    self.conf_growth,
                 )
             )
         return out
@@ -101,6 +103,8 @@ class VanishingGradientDetector(Detector):
     defaults = {
         "rel": 0.0001,  # a layer's grad norm below this fraction of the largest layer's = vanishing
         "dead_frac": 0.25,  # a layer with more dead units than this (late in the run)
+        "conf_vanishing": 0.5,  # ranking weight: near-zero gradients in some layers
+        "conf_dead_units": 0.5,  # ranking weight: many dead units in some layers
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -121,7 +125,7 @@ class VanishingGradientDetector(Detector):
                         f"vs max {ref:.1e})",
                         {"layers": {k: float(v) for k, v in tiny.head(8).items()}, "max_layer_grad": ref},
                         ["bad_init", "double_softmax"],
-                        0.5,
+                        self.conf_vanishing,
                     )
                 )
         dead = data.layers("act/dead_frac")
@@ -138,7 +142,7 @@ class VanishingGradientDetector(Detector):
                         f"{len(bad)} layer(s) with >{self.dead_frac:.0%} dead units (e.g. {bad.index[0]}: {bad.iloc[0]:.0%})",
                         {"layers": {k: float(v) for k, v in bad.head(8).items()}},
                         ["lr_too_high", "bad_init", "missing_normalization"],
-                        0.5,
+                        self.conf_dead_units,
                     )
                 )
         return out
@@ -152,6 +156,7 @@ class GradCarryoverDetector(Detector):
     defaults = {
         "max_ratio": 1.15,  # .grad / latest backward above this with no accumulation = zero_grad missing
         "accum_slack": 2.0,  # with accumulation k, allow up to slack*k + 1
+        "conf_carryover": 0.9,  # ranking weight: gradients carry over between steps
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -180,6 +185,6 @@ class GradCarryoverDetector(Detector):
                     "last": float(c.iloc[-1]),
                 },
                 ["missing_zero_grad", "grad_accum_unscaled"],
-                0.9,
+                self.conf_carryover,
             )
         ]

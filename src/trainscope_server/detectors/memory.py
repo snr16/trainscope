@@ -36,6 +36,7 @@ class MemoryLeakDetector(Detector):
         "min_r": 0.5,  # ... with at least this upward trend (correlation with step)
         "critical_frac": 0.4,  # growth above this fraction of the start = critical
         "min_samples": 30,  # memory samples needed (~30 s at 1 Hz); shorter runs are dominated by start-up allocation
+        "conf_leak": 0.8,  # ranking weight: memory floor keeps growing
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -80,7 +81,7 @@ class MemoryLeakDetector(Detector):
                             "trend_r": r,
                         },
                         ["memory_leak"],
-                        0.8,
+                        self.conf_leak,
                     )
                 ]
         return []

@@ -89,3 +89,57 @@ def test_yaml_style_numbers():
     assert cfg["defaults"]["plateau"]["frozen_update"] == 1e-6
     with pytest.raises(ConfigError, match="expected a number"):
         parse_config({"defaults": {"plateau": {"high_update": "high"}}}, DETECTOR_CLASSES)
+
+
+def test_tool_labels_follow_the_configured_detectors(tmp_path, monkeypatch):
+    """The MCP system summary (and the dashboard built on it) must agree with the detectors, overrides included."""
+    from trainscope_mcp.tools import TrainScopeTools
+    from trainscope_server.db import open_store
+
+    store = open_store(str(tmp_path / "s.duckdb"))
+    rows = []
+    for project in ("relaxed", "strict"):
+        store.upsert_run({"id": project, "project": project})
+        for step in range(60):
+            rows += [
+                {
+                    "run_id": project,
+                    "step": step,
+                    "ts": 0,
+                    "name": "data_wait_frac",
+                    "layer": "",
+                    "value": 0.25,
+                },
+                {"run_id": project, "step": step, "ts": 0, "name": "step_time", "layer": "", "value": 0.1},
+                # memory grows 30% over the run: a leak by default, not under a 50% bar
+                {
+                    "run_id": project,
+                    "step": step,
+                    "ts": 0,
+                    "name": "sys/proc_rss_mb",
+                    "layer": "",
+                    "value": 400 + 2 * step,
+                },
+            ]
+    store.write_metrics(rows)
+    path = tmp_path / "detectors.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "projects": {
+                    "strict": {"dataloader_bottleneck": {"wait_frac": 0.2}},
+                    "relaxed": {"memory_leak": {"min_growth_frac": 0.5}},
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("TRAINSCOPE_DETECTORS", str(path))
+    tools = TrainScopeTools(store)
+    for project, bottleneck, leak in (("relaxed", False, False), ("strict", True, True)):
+        sysm = tools.get_system_metrics(project)
+        findings = {f["detector"] for f in tools.get_findings(project)["findings"]}
+        assert sysm["data_wait_frac"]["bottleneck"] is bottleneck
+        assert ("dataloader_bottleneck" in findings) is bottleneck
+        assert (sysm["sys/proc_rss_mb"]["floor_trend"] == "rising") is leak
+        assert ("memory_leak" in findings) is leak
+    assert tools.get_system_metrics("strict")["data_wait_frac"]["threshold"] == 0.2

@@ -16,6 +16,8 @@ class LossSpikeDetector(Detector):
         "critical_count": 5,  # this many spikes or more = critical
         "early_blowup": 2.0,  # loss peak in the first 20% of the run this many x the step-0 loss
         "warmup_lr_frac": 0.5,  # LR at step 0 above this fraction of the peak = warmup missing
+        "conf_early_instability": 0.75,  # ranking weight: loss blew up early
+        "conf_spikes": 0.5,  # ranking weight: loss spikes
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -46,7 +48,7 @@ class LossSpikeDetector(Detector):
                     "spike_values": [float(loss[s]) for s in top.index],
                 },
                 ["lr_too_high", "missing_warmup", "exploding_no_clip"],
-                0.5,
+                self.conf_spikes,
             )
         ]
 
@@ -80,6 +82,6 @@ class LossSpikeDetector(Detector):
                     "base_lr": base,
                 },
                 causes,
-                0.75,
+                self.conf_early_instability,
             )
         ]

@@ -12,6 +12,7 @@ class DataLoaderDetector(Detector):
     defaults = {
         "wait_frac": 0.3,  # median share of each step spent waiting for data
         "critical_wait": 0.5,  # above this share = critical
+        "conf_bottleneck": 0.85,  # ranking weight: training waits on the data loader
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -42,6 +43,6 @@ class DataLoaderDetector(Detector):
                 msg,
                 ev,
                 ["dataloader_bottleneck"],
-                0.85,
+                self.conf_bottleneck,
             )
         ]

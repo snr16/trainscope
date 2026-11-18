@@ -14,6 +14,8 @@ class FrozenLayerDetector(Detector):
     defaults = {
         "eps": 1e-09,  # max update ratio at or below this = layer never changes
         "critical_frac": 0.5,  # this fraction of layers frozen or more = critical
+        "conf_frozen_critical": 0.8,  # ranking weight: most layers frozen
+        "conf_frozen_warning": 0.6,  # ranking weight: some layers frozen
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -54,7 +56,7 @@ class FrozenLayerDetector(Detector):
                     "note": "intentional if fine-tuning with a frozen backbone",
                 },
                 ["frozen_layers"],
-                0.8 if sev == "critical" else 0.6,
+                self.conf_frozen_critical if sev == "critical" else self.conf_frozen_warning,
             )
         ]
 
@@ -64,6 +66,7 @@ class TrainModeDetector(Detector):
     # eval-mode threshold
     defaults = {
         "eval_frac": 0.8,  # model in eval mode on at least this fraction of sampled steps
+        "conf_eval_mode": 0.9,  # ranking weight: model left in eval mode
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -83,6 +86,6 @@ class TrainModeDetector(Detector):
                 "(dropout/batch-norm behave as in inference)",
                 {"eval_mode_fraction": frac, "samples": len(tm)},
                 ["eval_mode_training"],
-                0.9,
+                self.conf_eval_mode,
             )
         ]

@@ -14,6 +14,8 @@ class OverfittingDetector(Detector):
         "train_drop": 0.9,  # ... while train loss fell below this fraction of its value at the best eval
         "critical_x": 1.5,  # eval loss this many x its best = critical
         "leak_loss_ratio": 0.9,  # eval loss below this fraction of train loss (with higher eval accuracy) = leakage
+        "conf_overfitting": 0.7,  # ranking weight: eval loss rising while train loss falls
+        "conf_eval_better": 0.6,  # ranking weight: eval clearly better than train (leakage)
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -54,7 +56,7 @@ class OverfittingDetector(Detector):
                         "train_set_size": data.cfg("train_size", "n_train"),
                     },
                     ["overfitting"],
-                    0.7,
+                    self.conf_overfitting,
                 )
             )
         # eval consistently *better* than train -> possible leakage of eval data into training
@@ -82,7 +84,7 @@ class OverfittingDetector(Detector):
                     + "; the eval set may overlap the training data",
                     {"eval_loss": ev_tail, "train_loss": tr_tail, "eval_minus_train_accuracy": acc_gap},
                     ["val_leakage"],
-                    0.6,
+                    self.conf_eval_better,
                 )
             )
         return out

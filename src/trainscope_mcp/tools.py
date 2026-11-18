@@ -11,7 +11,7 @@ import pandas as pd
 
 from trainscope_server.commands import policy
 from trainscope_server.db import Storage
-from trainscope_server.detectors import RunData, run_detectors
+from trainscope_server.detectors import RunData, detectors_for, run_detectors
 from trainscope_server.detectors.memory import memory_floor
 
 from .summarize import _r, cap, layer_table, series_summary
@@ -63,6 +63,16 @@ class TrainScopeTools:
     def _series(self, run_id: str, name: str, layer: str = "", **kw: Any) -> pd.Series:
         df = self._df(run_id, names=[name], layer=layer, **kw)
         return df.groupby("step")["value"].last().sort_index() if len(df) else pd.Series(dtype=float)
+
+    def _detector_check(self, run_id: str, name: str) -> tuple[Any, list[Any]] | None:
+        """Run one configured detector (project overrides apply) on this run; None if it is disabled.
+        Tools use this instead of re-implementing a detector's rule, so their labels always agree with it."""
+        run = self._run(run_id)
+        det = next((d for d in detectors_for(run.get("project")) if d.name == name), None)
+        if det is None:
+            return None
+        data = RunData(self._df(run_id), run.get("config"), self._events(run_id), project=run.get("project"))
+        return det, det.run(data)
 
     def _findings(self, run_id: str) -> list[dict[str, Any]]:
         run = self._run(run_id)
@@ -267,27 +277,38 @@ class TrainScopeTools:
             out[name] = {k: ss.get(k) for k in ("first", "last", "min", "max", "mean", "trend", "change_pct")}
             out[name]["median"] = _r(s.median())
         if "data_wait_frac" in out:
-            parts.append(f"data wait {out['data_wait_frac']['median']:.0%} of step time (median)")
+            msg = f"data wait {out['data_wait_frac']['median']:.0%} of step time (median)"
+            # the bottleneck verdict comes from the data-loader detector, with the run's configured threshold
+            check = self._detector_check(run_id, "dataloader_bottleneck")
+            if check is not None:
+                det, found = check
+                out["data_wait_frac"].update({"bottleneck": bool(found), "threshold": det.wait_frac})
+                if found:
+                    msg += " (BOTTLENECK)"
+            parts.append(msg)
         if "step_time" in out:
             parts.append(f"step time median {out['step_time']['median']}s")
+        mem_check = self._detector_check(run_id, "memory_leak")
+        leaking = {f.evidence.get("series") for f in mem_check[1]} if mem_check else set()
         for m in ("sys/cuda_alloc_mb", "sys/gpu_mem_mb", "sys/proc_rss_mb", "mem/tracked_mb"):
             if m in out:
-                # raw RSS is spiky; its floor (rolling minimum) only rises when memory is really retained
+                # raw RSS is spiky; its floor (rolling minimum) only rises when memory is really retained.
+                # "rising" is the memory-leak detector's verdict (same thresholds, incl. detectors.yaml)
                 s = self._series(run_id, m, step_min=lo)
                 fl = memory_floor(s[np.isfinite(s.to_numpy(dtype=float))])
                 if fl is not None:
                     _, f0, f1, r = fl
-                    rising = f1 - f0 > 0.2 * max(f0, 1.0) and r > 0.5
+                    trend = "not checked" if mem_check is None else "rising" if m in leaking else "flat"
                     out[m].update(
                         {
                             "floor_start": _r(f0),
                             "floor_end": _r(f1),
                             "floor_trend_r": _r(r, 2),
-                            "floor_trend": "rising" if rising else "flat",
+                            "floor_trend": trend,
                         }
                     )
                     parts.append(
-                        f"{m} floor {f0:.0f} -> {f1:.0f} MB ({'RISING' if rising else 'flat'}), "
+                        f"{m} floor {f0:.0f} -> {f1:.0f} MB ({trend.upper() if trend == 'rising' else trend}), "
                         f"raw {out[m]['first']} -> {out[m]['last']} MB"
                     )
                 else:

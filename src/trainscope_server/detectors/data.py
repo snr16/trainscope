@@ -14,6 +14,12 @@ class SuspiciousDataDetector(Detector):
         "majority_x_uniform": 3.0,  # ... or above this x its uniform share, whichever is larger
         "label_shift": 0.25,  # label distribution shift (total variation) between run halves
         "min_overlap": 0.01,  # share of eval samples also in training that counts as leakage
+        "no_pad_ratio": 1e-06,  # padding share below this on padded inputs = the mask marks nothing as padding
+        "conf_extreme_padding": 0.5,  # ranking weight: batches mostly padding
+        "conf_no_padding_masked": 0.6,  # ranking weight: padded inputs with nothing masked
+        "conf_split_overlap": 0.95,  # ranking weight: eval samples also in training
+        "conf_label_imbalance": 0.4,  # ranking weight: one class dominates the labels
+        "conf_label_shift": 0.4,  # ranking weight: label mix shifts mid-run
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -29,10 +35,14 @@ class SuspiciousDataDetector(Detector):
                     f"batches are {float(pad.median()):.0%} padding on median",
                     {"median_pad_ratio": float(pad.median())},
                     ["bad_padding_mask"],
-                    0.5,
+                    self.conf_extreme_padding,
                 )
             )
-        if len(pad) >= 3 and float(pad.median()) < 1e-6 and data.cfg("task_type") == "padded_seq":
+        if (
+            len(pad) >= 3
+            and float(pad.median()) < self.no_pad_ratio
+            and data.cfg("task_type") == "padded_seq"
+        ):
             out.append(
                 Finding(
                     "no_padding_masked",
@@ -42,7 +52,7 @@ class SuspiciousDataDetector(Detector):
                     "attention mask marks no tokens as padding although inputs are padded",
                     {"median_pad_ratio": float(pad.median())},
                     ["bad_padding_mask"],
-                    0.6,
+                    self.conf_no_padding_masked,
                 )
             )
         maj = finite(data.scalar("data/majority_frac"))
@@ -59,7 +69,7 @@ class SuspiciousDataDetector(Detector):
                         f"one class makes up {m:.0%} of labels per batch (uniform would be {1 / k:.0%})",
                         {"median_majority_frac": m, "num_classes": k},
                         ["shuffled_labels"],
-                        0.4,
+                        self.conf_label_imbalance,
                     )
                 )
         lf = data.layers("data/label_frac")
@@ -76,7 +86,7 @@ class SuspiciousDataDetector(Detector):
                         f"label distribution shifted by {shift:.0%} (total variation) mid-run",
                         {"total_variation": shift},
                         ["shuffled_labels"],
-                        0.4,
+                        self.conf_label_shift,
                     )
                 )
         return out
@@ -110,7 +120,7 @@ class SuspiciousDataDetector(Detector):
                         "examples": sorted(shared)[:5],
                     },
                     ["val_leakage"],
-                    0.95,
+                    self.conf_split_overlap,
                 )
             )
         return out

@@ -45,6 +45,10 @@ class LRScheduleDetector(Detector):
         "warmup_lr_frac": 0.5,  # LR at step 0 above this fraction of the peak = warmup missing
         "min_reversals": 4,  # LR changing direction this many times = scheduler period too short
         "peak_x": 1.5,  # LR peaking above this x the configured value
+        "fast_decay_frac": 0.01,  # LR already below this fraction of its expected mid-run value = decaying too fast
+        "fast_decay_before": 0.6,  # ... while the run is still within this fraction of its total steps
+        "max_levels_frac": 0.02,  # scheduled LR with fewer distinct values than this share of steps = stepped per epoch
+        "conf_anomaly": 0.7,  # ranking weight: LR doesn't follow the configured schedule
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -109,13 +113,13 @@ class LRScheduleDetector(Detector):
                 "no warmup: LR starts at its peak although warmup is configured",
                 ["missing_warmup"],
             )
-        elif sched != "constant" and n_unique <= max(3, len(lr) // 50):
+        elif sched != "constant" and n_unique <= max(3, int(len(lr) * self.max_levels_frac + 1e-9)):
             reason = f"LR changes in only {n_unique} discrete step(s); scheduler likely stepped per epoch, not per step"
             causes = ["scheduler_misstep"]
         elif (
             sched != "constant"
-            and float(lr.iloc[-1]) < 0.01 * float(exp.iloc[len(exp) // 2])
-            and lr.index[-1] < total * 0.6
+            and float(lr.iloc[-1]) < self.fast_decay_frac * float(exp.iloc[len(exp) // 2])
+            and lr.index[-1] < total * self.fast_decay_before
         ):
             reason, causes = "LR decayed far faster than configured", ["scheduler_misstep"]
         elif float(lr.max()) > self.peak_x * base:
@@ -137,7 +141,7 @@ class LRScheduleDetector(Detector):
                 f"LR schedule anomaly: {reason} ({len(bad) / len(rel):.0%} of steps off by >{self.tol:.0%})",
                 {"observed": observed, "expected": expected, "mismatch_fraction": len(bad) / len(rel)},
                 causes,
-                0.7,
+                self.conf_anomaly,
             )
         )
         return out

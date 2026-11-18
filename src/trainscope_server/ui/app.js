@@ -512,7 +512,7 @@
     const memKey = mem ? mem.name : null, m = memKey ? SY[memKey] : null;
     p.innerHTML = `<div class="panel-h"><h2>System</h2><span class="s">${esc(SY.summary || "")}</span></div>
       <dl class="kv">
-        ${wait ? `<dt>waiting on data</dt><dd>${pct(wait.median)} of each step (median)${wait.median > 0.3 ? ' <span class="flag">· loader is the bottleneck</span>' : ""}</dd>` : ""}
+        ${wait ? `<dt>waiting on data</dt><dd>${pct(wait.median)} of each step (median)${wait.bottleneck ? ` <span class="flag">· loader is the bottleneck (over ${pct(wait.threshold)})</span>` : ""}</dd>` : ""}
         ${st ? `<dt>step time</dt><dd>${num(st.median * 1000)} ms median</dd>` : ""}
         ${m ? `<dt>memory floor</dt><dd>${num(m.floor_start)} → ${num(m.floor_end)} MB ${m.floor_trend === "rising" ? '<span class="flag">· rising</span>' : "· flat"}</dd>` : ""}
       </dl>

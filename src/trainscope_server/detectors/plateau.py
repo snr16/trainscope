@@ -44,6 +44,9 @@ class PlateauDetector(Detector):
         "chance_band": 0.1,  # within this fraction of ln(num_classes) = sitting at chance
         "near_chance": 0.95,  # final loss above this fraction of chance = stuck near chance
         "near_chance_head_x": 1.5,  # ... when the run also started below this x chance
+        "conf_bad_init": 0.8,  # ranking weight: step-0 loss far above chance
+        "conf_no_learning": 0.7,  # ranking weight: loss not improving
+        "conf_near_chance": 0.65,  # ranking weight: loss stuck near chance
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -79,7 +82,7 @@ class PlateauDetector(Detector):
                     f"loss at step 0 is {first:.3g}, far above chance level ln({k})={chance:.3g}",
                     {"loss_at_start": first, "chance_loss": chance},
                     ["bad_init", "missing_normalization"],
-                    0.8,
+                    self.conf_bad_init,
                 )
             )
         if len(loss) < len(raw) or tail > self.rising_x * head:
@@ -121,7 +124,7 @@ class PlateauDetector(Detector):
                     f"no learning: loss {head:.3g} -> {tail:.3g} ({ev['rel_drop'] * 100:.1f}% drop){detail}",
                     ev,
                     causes,
-                    0.7,
+                    self.conf_no_learning,
                 )
             )
         elif chance and tail > self.near_chance * chance and head < self.near_chance_head_x * chance:
@@ -134,7 +137,7 @@ class PlateauDetector(Detector):
                     f"loss stays near chance level ({tail:.3g} vs ln({k})={chance:.3g}){detail}",
                     ev,
                     causes,
-                    0.65,
+                    self.conf_near_chance,
                 )
             )
         return out

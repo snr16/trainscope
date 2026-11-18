@@ -12,6 +12,8 @@ class AmpOverflowDetector(Detector):
         "skipped_frac": 0.1,  # share of steps skipped for overflow
         "min_scale": 1.0,  # loss scale collapsing below this
         "underflow_zero_frac": 0.5,  # fp16 without a scaler: median share of exactly-zero gradient entries
+        "conf_overflow": 0.7,  # ranking weight: loss scale collapsed / overflow-skipped steps
+        "conf_fp16_unscaled": 0.8,  # ranking weight: fp16 without a loss scaler
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -36,7 +38,7 @@ class AmpOverflowDetector(Detector):
                             "skipped_fraction": frac,
                         },
                         ["fp16_no_loss_scaling", "lr_too_high"],
-                        0.7,
+                        self.conf_overflow,
                     )
                 )
         precision = str(data.cfg("precision", "dtype", default="")).lower()
@@ -66,7 +68,7 @@ class AmpOverflowDetector(Detector):
                         ),
                         {"precision": precision, "nonfinite_losses": nonfinite, "median_grad_zero_frac": zf},
                         ["fp16_no_loss_scaling"],
-                        0.8,
+                        self.conf_fp16_unscaled,
                     )
                 )
         return out

@@ -39,6 +39,9 @@ class DivergenceDetector(Detector):
         "nan_grad_growth": 10.0,  # grad norm this many x its early median right before a NaN = blow-up
         "ended_above_start": 1.2,  # final loss this many x the starting loss = warning
         "min_steps_ended_higher": 50,  # steps needed before that warning
+        "conf_nan": 0.9,  # ranking weight: loss became NaN/Inf
+        "conf_rise": 0.7,  # ranking weight: loss rose well above its best
+        "conf_ended_higher": 0.5,  # ranking weight: loss ended above its start
     }
 
     def run(self, data: RunData) -> list[Finding]:
@@ -84,7 +87,7 @@ class DivergenceDetector(Detector):
                     f"loss became NaN/Inf at step {first}{where}, {how}",
                     ev,
                     _nan_causes(data, grew),
-                    0.9,
+                    self.conf_nan,
                 )
             )
             return out
@@ -115,7 +118,7 @@ class DivergenceDetector(Detector):
                     f"loss rose {rose:.0f}% from its best ({best:.3g} at step {best_step}) to {last:.3g}",
                     {"best_loss": best, "best_step": best_step, "final_loss": last, "initial_loss": start},
                     causes,
-                    0.7,
+                    self.conf_rise,
                 )
             )
         elif (
@@ -133,7 +136,7 @@ class DivergenceDetector(Detector):
                     f"loss ended higher than it started ({start:.3g} -> {last:.3g})",
                     {"initial_loss": start, "final_loss": last},
                     causes,
-                    0.5,
+                    self.conf_ended_higher,
                 )
             )
         return out
