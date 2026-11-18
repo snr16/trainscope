@@ -1,7 +1,7 @@
 """Evaluation harness: run conditions A–E over benchmark runs and grade the diagnoses.
 
     python -m eval.harness --split dev --conditions E                       # no API key needed
-    python -m eval.harness --split dev --conditions A B C D --models claude-opus-5-5 claude-sonnet-5-5
+    python -m eval.harness --split dev --conditions A B C D            # model(s) from eval/config.yaml
     python -m eval.harness --split dev --conditions D --hide-signals gradients      # signal ablation
     python -m eval.harness --split test --conditions A B C D E --repeats 2          # final numbers
 
@@ -65,6 +65,21 @@ CANONICAL_LOCATION: dict[str, str] = {
     "memory_leak": "training loop: history keeps graph (.item())",
     "healthy": "",
 }
+
+
+CONFIG_PATH = Path(__file__).with_name("config.yaml")
+CONFIG_DEFAULTS: dict[str, Any] = {"models": [], "effort": "medium", "max_tool_calls": 12, "concurrency": 4}
+
+
+def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
+    import yaml
+
+    cfg = dict(CONFIG_DEFAULTS)
+    if path.exists():
+        cfg.update(yaml.safe_load(path.read_text()) or {})
+    if isinstance(cfg["models"], str):
+        cfg["models"] = [cfg["models"]]
+    return cfg
 
 
 def load_env(path: Path = ROOT / ".env") -> None:
@@ -173,6 +188,7 @@ async def main_async(args: Any) -> None:
 
     async def one(cond: str, model: str, rep: int, t: dict[str, Any]) -> dict[str, Any]:
         async with sem:
+            tr: dict[str, Any]
             if cond == "E":
                 tr = {
                     "diagnosis": detectors_only(store, t["run_id"]),
@@ -206,6 +222,7 @@ async def main_async(args: Any) -> None:
             results.append(r)
             f.write(json.dumps(r, default=str) + "\n")
             f.flush()
+    print(f"API spend: ${sum(r['transcript'].get('cost_usd', 0.0) for r in results):.4f}")
     print_summary(results)
 
 
@@ -228,7 +245,7 @@ def print_summary(results: list[dict[str, Any]]) -> None:
             f"{c:4} {m:20} {n:4d} {pct('cause_ok')} {pct('category_ok')} {pct('loc_ok')} "
             f"{pct('fix_static_ok')} {calls:6.1f} {cost:8.4f}"
         )
-    by_cause: dict[str, list[bool]] = defaultdict(list)
+    by_cause: dict[tuple[str, str], list[bool]] = defaultdict(list)
     for r in results:
         by_cause[(r["condition"], r["cause"])].append(r["cause_ok"])
     print("\nper-cause accuracy:")
@@ -237,20 +254,29 @@ def print_summary(results: list[dict[str, Any]]) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser()
+    # read --config first so the chosen file supplies the defaults for model / effort / limits
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--config", default=str(CONFIG_PATH))
+    known, _ = pre.parse_known_args(argv)
+    cfg = load_config(Path(known.config))
+
+    p = argparse.ArgumentParser(parents=[pre])
     p.add_argument("--split", default="dev", choices=["dev", "test"])
     p.add_argument("--conditions", nargs="+", default=["E"], choices=list(CONDITIONS))
-    p.add_argument("--models", nargs="+", default=["claude-opus-5-5"])
-    p.add_argument("--effort", default="medium", choices=["low", "medium", "high", "xhigh", "max"])
-    p.add_argument("--max-tool-calls", type=int, default=12)
+    p.add_argument("--models", nargs="+", default=cfg["models"], help="override `models` from the config")
+    p.add_argument("--effort", default=cfg["effort"], choices=["low", "medium", "high", "xhigh", "max"])
+    p.add_argument("--max-tool-calls", type=int, default=cfg["max_tool_calls"])
     p.add_argument("--repeats", type=int, default=1)
-    p.add_argument("--concurrency", type=int, default=4)
+    p.add_argument("--concurrency", type=int, default=cfg["concurrency"])
     p.add_argument("--limit", type=int)
     p.add_argument("--scenarios", nargs="*")
     p.add_argument("--hide-signals", nargs="*", choices=["gradients", "activations", "system", "data"])
     p.add_argument("--db", default=os.environ.get("TRAINSCOPE_DB", str(ROOT / "results" / "bench.duckdb")))
     p.add_argument("--tag")
-    asyncio.run(main_async(p.parse_args(argv)))
+    args = p.parse_args(argv)
+    if any(CONDITIONS[c].uses_llm for c in args.conditions) and not args.models:
+        raise SystemExit(f"no model configured: set `models` in {args.config}")
+    asyncio.run(main_async(args))
 
 
 if __name__ == "__main__":

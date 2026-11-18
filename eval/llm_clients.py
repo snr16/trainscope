@@ -14,12 +14,21 @@ from typing import Any
 
 from trainscope_server.taxonomy import CAUSES
 
-# $ per 1M tokens (input, output) — from the Claude API model table
+# $ per 1M tokens: (input, output, cache read). Cache writes cost 1.25x input. Haiku 5.5 rates apply to prompts
+# up to 100K tokens (ours are far below); its cache-read rate is assumed at the usual 10% of input.
 PRICES = {
-    "claude-opus-5-5": (4.0, 20.0),
-    "claude-sonnet-5-5": (2.0, 10.0),
-    "claude-haiku-5-5": (0.10, 0.50),
-    "claude-fable-5-2": (8.0, 40.0),
+    "claude-opus-5-5": (4.0, 20.0, 0.20),
+    "claude-sonnet-5-5": (2.0, 10.0, 0.10),
+    "claude-haiku-5-5": (0.10, 0.50, 0.01),
+    "claude-fable-5-2": (8.0, 40.0, 0.20),
+}
+# models that accept the server-side refusal fallback (Haiku 5.5 has none)
+FALLBACK_MODELS = {
+    "claude-opus-5-5",
+    "claude-opus-5",
+    "claude-sonnet-5-5",
+    "claude-fable-5-2",
+    "claude-fable-5-1",
 }
 
 SYSTEM = (
@@ -69,6 +78,7 @@ class Transcript:
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     turns: int = 0
     wall_s: float = 0.0
     diagnosis: dict[str, Any] | None = None
@@ -77,8 +87,13 @@ class Transcript:
 
     @property
     def cost_usd(self) -> float:
-        pin, pout = PRICES.get(self.model, (0.0, 0.0))
-        return (self.input_tokens * pin + self.output_tokens * pout) / 1e6
+        pin, pout, pread = PRICES.get(self.model, (0.0, 0.0, 0.0))
+        return (
+            self.input_tokens * pin
+            + self.cache_write_tokens * pin * 1.25
+            + self.cache_read_tokens * pread
+            + self.output_tokens * pout
+        ) / 1e6
 
     def to_dict(self) -> dict[str, Any]:
         d = self.__dict__.copy()
@@ -127,19 +142,26 @@ async def diagnose(
     try:
         for _ in range(max_tool_calls + 4):
             tr.turns += 1
-            resp = await client.beta.messages.create(
+            params: dict[str, Any] = dict(
                 model=model,
                 max_tokens=max_tokens,
                 system=SYSTEM,
                 tools=[SUBMIT_TOOL] if budget_exhausted else tools,
                 messages=messages,
                 output_config={"effort": effort},
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
+                # every turn resends the whole conversation; caching makes the repeated prefix ~10x cheaper
+                cache_control={"type": "ephemeral"},
             )
+            if model in FALLBACK_MODELS:
+                resp = await client.beta.messages.create(
+                    **params, betas=["server-side-fallback-2026-07-01"], fallbacks="default"
+                )
+            else:
+                resp = await client.messages.create(**params)
             tr.input_tokens += resp.usage.input_tokens
             tr.output_tokens += resp.usage.output_tokens
             tr.cache_read_tokens += getattr(resp.usage, "cache_read_input_tokens", 0) or 0
+            tr.cache_write_tokens += getattr(resp.usage, "cache_creation_input_tokens", 0) or 0
             tr.stop_reason = resp.stop_reason
             if resp.stop_reason == "refusal":
                 tr.error = "refusal"
