@@ -249,7 +249,17 @@ async def main_async(args: Any) -> None:
             f.write(json.dumps(r, default=str) + "\n")
             f.flush()
     print(f"API spend: ${sum(r['transcript'].get('cost_usd', 0.0) for r in results):.4f}")
-    print_summary(results)
+    errors = [r for r in results if r["transcript"].get("error")]
+    if errors:
+        # API failures are not wrong answers: report them and leave them out of the accuracy table
+        print(
+            f"\n{len(errors)} diagnosis/es failed with an API error and are excluded from the scores, e.g.:"
+        )
+        for msg in sorted({r["transcript"]["error"][:200] for r in errors})[:3]:
+            print("  -", msg)
+        results = [r for r in results if not r["transcript"].get("error")]
+    if results:
+        print_summary(results)
 
 
 def print_summary(results: list[dict[str, Any]]) -> None:

@@ -135,7 +135,8 @@ async def diagnose(
     if mcp_session is not None:
         listed = await mcp_session.list_tools()
         for t in listed.tools:
-            tools.append({"name": t.name, "description": t.description or "", "input_schema": t.inputSchema})
+            schema = getattr(t, "input_schema", None) or getattr(t, "inputSchema", None)  # MCP SDK v2 / v1
+            tools.append({"name": t.name, "description": t.description or "", "input_schema": schema})
     tools.append(SUBMIT_TOOL)
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_prompt}]
     budget_exhausted = False

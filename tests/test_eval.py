@@ -35,7 +35,7 @@ class FakeClient:
 
 class FakeSession:
     async def list_tools(self):
-        return NS(tools=[NS(name="get_run_summary", description="summary", inputSchema={"type": "object"})])
+        return NS(tools=[NS(name="get_run_summary", description="summary", input_schema={"type": "object"})])
 
     async def call_tool(self, name, args):
         return NS(content=[NS(text='{"summary": "ok"}')], structured_content=None, is_error=False)
