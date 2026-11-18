@@ -32,7 +32,16 @@ def main(argv: list[str] | None = None) -> None:
         pa.add_argument("--by", default=getpass.getuser())
     pf = sub.add_parser("findings")
     pf.add_argument("run_id")
+    pr = sub.add_parser("replay", help="send telemetry left in the SDK spool to the store/server")
+    pr.add_argument(
+        "--spool-dir", default=os.environ.get("TRAINSCOPE_SPOOL", os.path.expanduser("~/.trainscope/spool"))
+    )
+    pr.add_argument("--keep", action="store_true", help="keep spool files after a successful replay")
     a = p.parse_args(argv)
+
+    if a.cmd == "replay":
+        print(json.dumps(replay(a), indent=2))
+        return
 
     if a.url:
         c = httpx.Client(base_url=a.url, headers={"Authorization": f"Bearer {a.token}"} if a.token else {})
@@ -64,6 +73,31 @@ def main(argv: list[str] | None = None) -> None:
 
             out = refresh_findings(store, a.run_id)
     print(json.dumps(out, indent=2, default=str))
+
+
+def replay(a: argparse.Namespace) -> dict:
+    from pathlib import Path
+
+    from trainscope.transport import HttpSink, LocalSink
+
+    sink = (
+        HttpSink(a.url, a.token)
+        if a.url
+        else LocalSink(a.db or os.environ.get("TRAINSCOPE_DB", "trainscope.duckdb"))
+    )
+    done, failed, batches = [], [], 0
+    for f in sorted(Path(a.spool_dir).glob("*.jsonl")):
+        try:
+            for line in f.read_text().splitlines():
+                if line.strip():
+                    sink.send(json.loads(line))
+                    batches += 1
+            done.append(f.name)
+            if not a.keep:
+                f.unlink()
+        except Exception as e:  # leave the file for the next attempt
+            failed.append({"file": f.name, "error": str(e)})
+    return {"replayed_files": done, "batches": batches, "failed": failed}
 
 
 if __name__ == "__main__":

@@ -192,6 +192,16 @@ class DuckDBStore:
             rows = c.execute(q + " ORDER BY step", args).fetchall()
         return [{"step": r[0], "ts": r[1], "type": r[2], "payload": json.loads(r[3] or "{}")} for r in rows]
 
+    def merge_from(self, other_path: str) -> None:
+        """Copy every row of another TrainScope DuckDB file into this store (idempotent)."""
+        with self._conn() as c:
+            c.execute(f"ATTACH '{other_path}' AS src (READ_ONLY)")
+            try:
+                for table in ("runs", "metrics", "events", "findings", "commands"):
+                    c.execute(f"INSERT OR REPLACE INTO {table} SELECT * FROM src.{table}")
+            finally:
+                c.execute("DETACH src")
+
     # ------------------------------------------------------------ findings
     def replace_findings(self, run_id: str, findings: list[dict[str, Any]]) -> None:
         with self._conn() as c:

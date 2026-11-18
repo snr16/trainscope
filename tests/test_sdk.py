@@ -25,10 +25,11 @@ def test_watcher_collects_grad_weight_act_stats():
 def test_nonfinite_grad_event_names_layer():
     m = _model()
     w = ModelWatcher(m, grad_every=1)
-    m(torch.randn(2, 8)).sum().backward()
-    m[2].weight.grad[0, 0] = float("nan")
+    x = torch.randn(2, 8)
+    x[0, 0] = float("nan")  # a bad input poisons the gradients during backward
+    m(x).sum().backward()
     _, events = w.collect(0)
-    assert events and events[0]["payload"]["first_layer"] == "2"
+    assert events and events[0]["payload"]["first_layer"] == "0"
 
 
 def test_end_to_end_local_mode(tmp_path):
@@ -88,3 +89,13 @@ def test_checkpoint_command_executes_at_step_boundary(tmp_path):
     done = store.get_command(cmd["id"])
     assert done["status"] == "executed" and done["result"]["step"] == 7
     assert (tmp_path / "ck" / run.id / "step_7.pt").exists()
+
+
+def test_grad_norm_is_measured_before_clipping():
+    m = _model()
+    w = ModelWatcher(m, grad_every=1)
+    (m(torch.randn(4, 8)) * 1000).sum().backward()
+    torch.nn.utils.clip_grad_norm_(m.parameters(), 0.01)
+    metrics, _ = w.collect(0)
+    g = dict(((n, layer), v) for n, layer, v in metrics)[("grad/global_norm", "")]
+    assert g > 1.0, "should report the pre-clip norm, not the clipped 0.01"

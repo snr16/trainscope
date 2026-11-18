@@ -42,6 +42,34 @@ class ModelWatcher:
         self._act_stats: dict[str, torch.Tensor] = {}
         self._handles: list[Any] = []
         self._register_activation_hooks(max_act_layers)
+        # gradient stats are captured right after backward (before clipping / unscaling / zero_grad)
+        self._grad_on = True
+        self._grad_stats: dict[str, tuple[torch.Tensor, torch.Tensor, int, torch.Tensor]] = {}
+        self._register_grad_hooks()
+
+    # --------------------------------------------------------------- gradients
+    def _register_grad_hooks(self) -> None:
+        if not hasattr(torch.Tensor, "register_post_accumulate_grad_hook"):
+            return  # torch < 2.1: fall back to reading .grad at log time
+        for n, p in self.model.named_parameters():
+            if p.requires_grad:
+                self._handles.append(p.register_post_accumulate_grad_hook(self._make_grad_hook(n)))
+
+    def _make_grad_hook(self, name: str):
+        def hook(p: torch.Tensor) -> None:
+            if not self._grad_on or p.grad is None:
+                return
+            with torch.no_grad():
+                g = p.grad.detach().float()
+                # overwrite on every micro-batch: the last call sees the fully accumulated gradient
+                self._grad_stats[name] = (
+                    g.pow(2).sum(),
+                    (g == 0).sum(),
+                    g.numel(),
+                    (~torch.isfinite(g)).any(),
+                )
+
+        return hook
 
     # ------------------------------------------------------------ activations
     def _register_activation_hooks(self, max_layers: int) -> None:
@@ -80,6 +108,8 @@ class ModelWatcher:
         """Called by Run.log for the *next* step, so the following forward pass can be sampled."""
         nxt = step + 1
         self._act_on = nxt % self.act_every == 0
+        self._grad_on = nxt % self.grad_every == 0
+        self._grad_stats = {}
         if self.track_update_ratio and nxt % self.grad_every == 0:
             with torch.no_grad():
                 self._snapshot = {n: p.detach().clone() for n, p in self.model.named_parameters()}
@@ -113,14 +143,15 @@ class ModelWatcher:
                     if self._snapshot is not None and n in self._snapshot:
                         d = (w - self._snapshot[n]).float().pow(2).sum()
                         usq = d if usq is None else usq + d
-                    if p.grad is not None:
+                    stats = self._grad_stats.get(n)
+                    if stats is None and p.grad is not None:
                         g = p.grad.detach().float()
-                        s = g.pow(2).sum()
+                        stats = (g.pow(2).sum(), (g == 0).sum(), g.numel(), (~torch.isfinite(g)).any())
+                    if stats is not None:
+                        s, z, ne, nf = stats
                         gsq = s if gsq is None else gsq + s
-                        z = (g == 0).sum()
                         zeros = z if zeros is None else zeros + z
-                        numel = g.numel() if numel is None else numel + g.numel()
-                        nf = (~torch.isfinite(g)).any()
+                        numel = ne if numel is None else numel + ne
                         nonfinite = nf if nonfinite is None else nonfinite | nf
                 dev = wsq.device
                 nan = torch.tensor(float("nan"), device=dev)
@@ -138,6 +169,7 @@ class ModelWatcher:
                 )
                 layers.append(layer)
             self._snapshot = None
+            self._grad_stats = {}
             if not rows:
                 return metrics, events
             table = torch.stack([r.to(rows[0].device) for r in rows]).cpu().tolist()  # one sync

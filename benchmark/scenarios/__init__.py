@@ -63,6 +63,7 @@ def _run_id(key: str) -> str:
 
 
 def resolve_cfg(task: str, spec: dict[str, Any]) -> dict[str, Any]:
+    spec = {**spec, **((spec.get("per_task") or {}).get(task) or {})}  # task-specific overrides
     cfg = dict(spec.get("cfg") or {})
     base_lr = cfg.get("lr", DEFAULTS[task]["lr"])
     if "lr_mult" in spec:
@@ -96,7 +97,7 @@ def expand(
                         sev,
                         seed,
                         resolve_cfg(task, spec),
-                        list(spec.get("bugs") or []),
+                        list({**spec, **((spec.get("per_task") or {}).get(task) or {})}.get("bugs") or []),
                         sc["component"],
                         sc["fixes"],
                     )

@@ -42,7 +42,10 @@ TEXT_VOCAB, TEXT_LEN, TEXT_PAD = 60, 64, 0
 KEYWORDS = [2, 3, 4, 5]
 
 
-def make_text(n: int, seed: int, min_len: int = 44) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def make_text(
+    n: int, seed: int, min_len: int = 44, label_noise: float = 0.1
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Label = the keyword that appears most often (ties possible); 10% of labels are noisy."""
     rng = np.random.default_rng(seed)
     x = np.zeros((n, TEXT_LEN), dtype=np.int64)
     mask = np.zeros((n, TEXT_LEN), dtype=np.int64)
@@ -50,12 +53,16 @@ def make_text(n: int, seed: int, min_len: int = 44) -> tuple[torch.Tensor, torch
     for i in range(n):
         L = rng.integers(min_len, TEXT_LEN + 1)
         seq = rng.integers(6, TEXT_VOCAB, L)
-        # the label keyword appears 3-5 times, distractor keywords 0-2 times
+        pos = rng.permutation(L)
+        k0 = 0
         for k, kw in enumerate(KEYWORDS):
-            cnt = rng.integers(3, 6) if k == y[i] else rng.integers(0, 3)
-            seq[rng.choice(L, cnt, replace=False)] = kw
+            cnt = rng.integers(2, 5) if k == y[i] else rng.integers(0, 3)
+            seq[pos[k0 : k0 + cnt]] = kw
+            k0 += cnt
         x[i, :L] = seq
         mask[i, :L] = 1
+    flip = rng.random(n) < label_noise
+    y[flip] = rng.integers(0, len(KEYWORDS), int(flip.sum()))
     return torch.tensor(x), torch.tensor(mask), torch.tensor(y)
 
 

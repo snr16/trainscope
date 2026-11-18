@@ -17,9 +17,9 @@ lr_too_high:
   cause: lr_too_high
   tasks: [vision, text_clf, lm]
   severities:
-    mild: {lr_mult: 10}
-    severe: {lr_mult: 50}
-    extreme: {lr_mult: 200}
+    mild: {lr_mult: 10, per_task: {lm: {lr_mult: 30}}}
+    severe: {lr_mult: 30, per_task: {lm: {lr_mult: 100}}}
+    extreme: {lr_mult: 100, per_task: {lm: {lr_mult: 300}}}
   component: config.lr
   fixes: [{type: config_change, field: lr, value: default}]
 
@@ -103,13 +103,8 @@ val_leakage:
   component: data.split
   fixes: [{type: code_fix, name: val_leakage}]
 
-missing_normalization:
-  cause: missing_normalization
-  tasks: [vision]
-  severities:
-    default: {bugs: [missing_normalization]}
-  component: data.preprocessing
-  fixes: [{type: code_fix, name: missing_normalization}]
+# missing_normalization was dropped: BatchNorm right after the stem fully compensates for unnormalized inputs
+# on the vision task (accuracy matched healthy runs), so the injected bug never manifested.
 
 bad_padding_mask:
   cause: bad_padding_mask

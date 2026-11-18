@@ -23,7 +23,9 @@ class OverfittingDetector(Detector):
             else float(tr.iloc[0])
         )
         tr_last = float(tr.iloc[-max(5, len(tr) // 20) :].mean())
-        if best_step < ev.index[-1] and last > best * 1.15 and tr_last < tr_at_best * 0.9:
+        after = ev[ev.index > best_step]
+        sustained = len(after) >= 2 and float(after.iloc[-2:].min()) > best * 1.1
+        if sustained and last > best * 1.15 and tr_last < tr_at_best * 0.9:
             gap = last - tr_last
             ev_acc = finite(data.scalar("eval/accuracy"))
             out.append(

@@ -52,7 +52,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         dataset="synthetic-keywords-4",
         task_type="padded_seq",
         num_classes=4,
-        train_size=3000,
+        train_size=2000,
         val_size=600,
         seq_len=64,
         batch_size=32,
@@ -78,7 +78,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         val_sentences=300,
         batch_size=32,
         optimizer="adamw",
-        lr=2e-3,
+        lr=1e-2,
         weight_decay=0.01,
         scheduler="cosine",
         warmup_steps=30,
@@ -263,6 +263,7 @@ def train(
     project: str = "bench",
     max_steps: int | None = None,
     live: bool = False,
+    spool_dir: str | None = None,
     mode: str | None = None,
     url: str | None = None,
 ) -> Result:
@@ -323,6 +324,7 @@ def train(
         command_interval=1.0,
         mode=mode,
         url=url,
+        spool_dir=spool_dir,
     )
     ts.watch(model, optimizer=opt, grad_every=10, act_every=30)
     run.print(

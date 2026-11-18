@@ -33,6 +33,9 @@ def _run_one(v: dict, db: str, max_steps: int | None) -> dict:
     log_dir = LOG_DIR / v["run_id"]
     log_dir.mkdir(parents=True, exist_ok=True)
     (log_dir / "stdout.log").unlink(missing_ok=True)
+    # each run writes its own DuckDB file (no cross-process lock contention); the parent merges it
+    run_db = log_dir / "telemetry.duckdb"
+    run_db.unlink(missing_ok=True)
     t = time.time()
     try:
         res = train(
@@ -42,17 +45,19 @@ def _run_one(v: dict, db: str, max_steps: int | None) -> dict:
             seed=v["seed"],
             run_id=v["run_id"],
             name=f"exp-{v['run_id'][:6]}",
-            db=db,
+            db=str(run_db),
+            spool_dir=str(log_dir / "spool"),
             stdout_log=str(log_dir / "stdout.log"),
             max_steps=max_steps,
         )
-        return {**v, "result": asdict(res), "ok": True}
+        return {**v, "result": asdict(res), "ok": True, "run_db": str(run_db)}
     except Exception:
         return {**v, "ok": False, "error": traceback.format_exc()[-2000:], "wall_s": time.time() - t}
 
 
 def main(argv: list[str] | None = None) -> None:
     from benchmark.scenarios import expand
+    from trainscope_server.db.duckdb_store import DuckDBStore
 
     p = argparse.ArgumentParser()
     p.add_argument("--split", choices=["dev", "test"], default="dev")
@@ -79,6 +84,8 @@ def main(argv: list[str] | None = None) -> None:
         futs = {ex.submit(_run_one, v, a.db, a.max_steps): v for v in todo}
         for i, f in enumerate(as_completed(futs), 1):
             r = f.result()
+            if r["ok"]:
+                DuckDBStore(a.db).merge_from(r.pop("run_db"))
             gt.write(json.dumps(r) + "\n")
             gt.flush()
             status = "ok" if r["ok"] else "ERROR"

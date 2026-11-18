@@ -38,7 +38,7 @@ class PlateauDetector(Detector):
             "median_update_ratio": med_upd,
             "median_grad_norm": float(grad.median()) if len(grad) else None,
         }
-        if chance and head > 3 * chance:
+        if chance and head > 2 * chance:
             out.append(
                 Finding(
                     "bad_initial_loss",

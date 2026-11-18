@@ -87,11 +87,22 @@ class Flusher(threading.Thread):
     def wake(self) -> None:
         self._wake.set()
 
-    def stop(self, timeout: float = 10.0) -> None:
+    def stop(self, timeout: float = 10.0, final_retry_s: float = 20.0) -> None:
         self._halt.set()
         self._wake.set()
         self.join(timeout)
         self.flush_now(final=True)
+        # training is over, so it's fine to wait a little for a busy/locked sink before leaving data on disk
+        delay, waited = 0.25, 0.0
+        while self.spooled and waited < final_retry_s:
+            time.sleep(delay)
+            waited += delay
+            delay = min(delay * 2, 4.0)
+            self._replay_spool(force=True)
+        if self.spooled:
+            log.warning(
+                "trainscope: telemetry left in %s; replay it with `trainscope replay`", self.spool_path
+            )
 
     def flush_now(self, final: bool = False) -> None:
         with self._send_lock:
