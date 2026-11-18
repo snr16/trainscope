@@ -1,0 +1,55 @@
+"""Storage interface shared by the DuckDB (local) and Postgres/TimescaleDB backends."""
+
+from __future__ import annotations
+
+import os
+from typing import Any, Protocol
+
+import pandas as pd
+
+
+class Storage(Protocol):
+    # runs
+    def upsert_run(self, run: dict[str, Any]) -> None: ...
+    def set_run_status(self, run_id: str, status: str, ended_at: float | None = None) -> None: ...
+    def get_run(self, run_id: str) -> dict[str, Any] | None: ...
+    def list_runs(self, project: str | None = None, status: str | None = None) -> list[dict[str, Any]]: ...
+    # metrics / events
+    def write_metrics(self, rows: list[dict[str, Any]]) -> int: ...
+    def write_events(self, rows: list[dict[str, Any]]) -> int: ...
+    def metrics_df(
+        self,
+        run_id: str,
+        names: list[str] | None = None,
+        layer: str | None = None,
+        step_min: int | None = None,
+        step_max: int | None = None,
+        name_prefix: str | None = None,
+    ) -> pd.DataFrame: ...
+    def metric_names(self, run_id: str) -> list[str]: ...
+    def max_step(self, run_id: str) -> int: ...
+    def events(self, run_id: str, type: str | None = None) -> list[dict[str, Any]]: ...
+    # findings
+    def replace_findings(self, run_id: str, findings: list[dict[str, Any]]) -> None: ...
+    def findings(self, run_id: str) -> list[dict[str, Any]]: ...
+    # commands
+    def create_command(self, cmd: dict[str, Any]) -> dict[str, Any]: ...
+    def update_command(self, cmd_id: str, **fields: Any) -> dict[str, Any] | None: ...
+    def get_command(self, cmd_id: str) -> dict[str, Any] | None: ...
+    def list_commands(self, run_id: str | None = None, status: str | None = None) -> list[dict[str, Any]]: ...
+
+
+def open_store(url: str | None = None) -> Storage:
+    """Open a store from a URL.
+
+    ``duckdb:///path/file.duckdb`` (or a bare path) -> DuckDB; ``postgresql://...`` -> Postgres/Timescale.
+    Defaults to ``$TRAINSCOPE_DB`` or ``./trainscope.duckdb``.
+    """
+    url = url or os.environ.get("TRAINSCOPE_DB", "trainscope.duckdb")
+    if url.startswith(("postgres://", "postgresql://")):
+        from .pg_store import PostgresStore
+
+        return PostgresStore(url)
+    from .duckdb_store import DuckDBStore
+
+    return DuckDBStore(url.removeprefix("duckdb://"))

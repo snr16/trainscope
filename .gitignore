@@ -1,0 +1,17 @@
+plan.md
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+*.duckdb
+*.duckdb.wal
+checkpoints/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+results/runs/
+benchmark/data/
+.env
+.claude/settings.local.json
