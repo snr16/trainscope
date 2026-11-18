@@ -30,12 +30,22 @@ from .rows import (
 
 _SCHEMA = (Path(__file__).with_name("schema.sql")).read_text()
 
+# DuckDB allows one open handle per file per process, so every store on the same file shares one lock
+_PATH_LOCKS: dict[str, threading.RLock] = {}
+_PATH_LOCKS_GUARD = threading.Lock()
+
+
+def _lock_for(path: str) -> threading.RLock:
+    key = path if path == ":memory:" else str(Path(path).resolve())
+    with _PATH_LOCKS_GUARD:
+        return _PATH_LOCKS.setdefault(key, threading.RLock())
+
 
 class DuckDBStore:
     def __init__(self, path: str = "trainscope.duckdb", retries: int = 40):
         self.path = path
         self.retries = retries
-        self._lock = threading.RLock()
+        self._lock = threading.RLock() if path == ":memory:" else _lock_for(path)
         self._mem: duckdb.DuckDBPyConnection | None = None
         if path == ":memory:":
             self._mem = duckdb.connect(":memory:")
@@ -55,7 +65,7 @@ class DuckDBStore:
                 try:
                     con = duckdb.connect(self.path)
                     break
-                except duckdb.IOException:
+                except (duckdb.IOException, duckdb.ResourceInUseException):
                     if attempt == self.retries - 1:
                         raise
                     time.sleep(delay)
