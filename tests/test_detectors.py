@@ -156,3 +156,32 @@ def test_lr_schedule_no_warmup_and_misstep():
 
 def test_detectors_tolerate_empty_run():
     assert run_detectors(data()) == []
+
+
+def test_split_overlap_flags_leakage():
+    from trainscope_server.detectors.data import SuspiciousDataDetector
+
+    ev = [{"step": 0, "type": "dataset_ids", "payload": {"split": "train", "ids": ["a", "b", "c", "d"]}},
+          {"step": 0, "type": "dataset_ids", "payload": {"split": "eval", "ids": ["c", "d", "e"]}}]
+    f = SuspiciousDataDetector().run(data(events=ev))
+    assert f and f[0].detector == "split_overlap" and f[0].evidence["overlap"] == 2
+    clean = [ev[0], {"step": 0, "type": "dataset_ids", "payload": {"split": "eval", "ids": ["x"]}}]
+    assert SuspiciousDataDetector().run(data(events=clean)) == []
+
+
+def test_plateau_double_softmax_vs_shuffled():
+    rng = np.random.default_rng(0)
+    loss = math.log(10) - 0.05 + 0.02 * rng.normal(size=200)
+    ds = PlateauDetector().run(data({"loss": loss, "train/accuracy": np.full(200, 0.25)}, config={"num_classes": 10}))
+    sh = PlateauDetector().run(data({"loss": loss, "train/accuracy": np.full(200, 0.10)}, config={"num_classes": 10}))
+    assert ds[0].suspected_causes[0] == "double_softmax"
+    assert sh[0].suspected_causes[0] == "shuffled_labels"
+
+
+def test_carryover_detector():
+    from trainscope_server.detectors.gradients import GradCarryoverDetector
+
+    assert GradCarryoverDetector().run(data({"grad/carryover_ratio": np.ones(10)})) == []
+    f = GradCarryoverDetector().run(data({"grad/carryover_ratio": np.full(10, 1.4)}))
+    assert f and f[0].suspected_causes[0] == "missing_zero_grad"
+    assert GradCarryoverDetector().run(data({"grad/carryover_ratio": np.full(10, 3.0)}, config={"grad_accum": 2})) == []

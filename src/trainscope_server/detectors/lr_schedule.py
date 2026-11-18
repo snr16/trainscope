@@ -70,7 +70,8 @@ class LRScheduleDetector(Detector):
         )
         rel = (lr - exp).abs() / (exp.abs() + base * 1e-3)
         bad = rel[rel > self.tol]
-        if len(bad) / len(rel) < 0.2:
+        no_warmup = bool(warmup and float(lr.iloc[0]) > 0.5 * base)
+        if len(bad) / len(rel) < 0.2 and not no_warmup:
             return out
         n_unique = lr.round(12).nunique()
         observed = {

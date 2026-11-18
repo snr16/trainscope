@@ -327,6 +327,8 @@ def train(
         spool_dir=spool_dir,
     )
     ts.watch(model, optimizer=opt, grad_every=10, act_every=30)
+    run.log_dataset_ids("train", train_ds.ids)
+    run.log_dataset_ids("eval", val_ds.ids)
     run.print(
         f"task={cfg['task']} model={cfg['model']} params={sum(p.numel() for p in model.parameters())} "
         f"steps={total} batch={cfg['batch_size']} lr={cfg['lr']}"
@@ -355,10 +357,12 @@ def train(
             logits, y, ids, m = _forward(task, model, batch, bugs, dtype)
             loss = _loss(task, logits, y, bugs)
             back = loss if (accum == 1 or "grad_accum_unscaled" in bugs) else loss / accum
-            back.backward()
+            # memory-leak bug: retain_graph=True (added to silence an error) + a history list of losses keeps
+            # every step's activations alive
+            back.backward(retain_graph="memory_leak" in bugs)
             micro += 1
             if "memory_leak" in bugs:
-                history.append(loss)  # keeps the whole autograd graph alive
+                history.append(loss)  # with retain_graph=True this pins the whole graph of every step
             else:
                 history.append(float(loss))
             tr_correct += int((logits.detach().argmax(-1) == y).sum())
@@ -379,7 +383,7 @@ def train(
                 step,
                 labels=labels,
                 attention_mask=m,
-                sample_ids=ids.tolist(),
+                sample_ids=[train_ds.ids[i] for i in ids.tolist()],
                 num_classes=cfg.get("num_classes") if task != "lm" else None,
             )
             if step % 10 == 0:

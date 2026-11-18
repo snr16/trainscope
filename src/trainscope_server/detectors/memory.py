@@ -8,37 +8,32 @@ _SERIES = ["sys/cuda_alloc_mb", "sys/mps_alloc_mb", "sys/gpu_mem_mb", "sys/proc_
 
 
 class MemoryLeakDetector(Detector):
+    """Steady growth of memory. Allocator stats (CUDA/MPS) are exact; process RSS is noisy (other processes,
+    page compression), so for RSS we follow its *floor* (rolling minimum), which only rises if memory leaks."""
+
     name = "memory_leak"
 
-    def __init__(self, min_growth_mb: float = 30.0, min_r: float = 0.9):
+    def __init__(self, min_growth_mb: float = 100.0, min_r: float = 0.8):
         self.min_growth_mb, self.min_r = min_growth_mb, min_r
 
     def run(self, data: RunData) -> list[Finding]:
         for name in _SERIES:
             s = finite(data.scalar(name))
-            if len(s) < 8:
+            if len(s) < 16:
                 continue
-            s = s.iloc[len(s) // 10 :]  # ignore warm-up allocations
-            growth = float(s.iloc[-1] - s.iloc[0])
-            slope, r = trend(s)
-            if growth > self.min_growth_mb and r > self.min_r and growth > 0.15 * max(float(s.iloc[0]), 1.0):
-                return [
-                    Finding(
-                        self.name,
-                        "critical" if growth > float(s.iloc[0]) else "warning",
-                        int(s.index[0]),
-                        int(s.index[-1]),
-                        f"{name} grew steadily by {growth:.0f} MB ({float(s.iloc[0]):.0f} -> {float(s.iloc[-1]):.0f}, "
-                        f"r={r:.2f}, {slope * 1000:.1f} MB per 1k steps)",
-                        {
-                            "series": name,
-                            "start_mb": float(s.iloc[0]),
-                            "end_mb": float(s.iloc[-1]),
-                            "slope_mb_per_step": slope,
-                            "trend_r": r,
-                        },
-                        ["memory_leak"],
-                        0.8,
-                    )
-                ]
+            s = s.iloc[len(s) // 10:]  # ignore warm-up allocations
+            w = max(5, len(s) // 8)
+            floor = s.rolling(w).min().dropna()
+            if len(floor) < 4:
+                continue
+            start, end = float(floor.iloc[0]), float(floor.iloc[-1])
+            growth = end - start
+            slope, r = trend(floor)
+            if growth > self.min_growth_mb and growth > 0.2 * max(start, 1.0) and r > self.min_r:
+                return [Finding(
+                    self.name, "critical" if growth > start else "warning", int(floor.index[0]), int(floor.index[-1]),
+                    f"{name} floor grew steadily by {growth:.0f} MB ({start:.0f} -> {end:.0f}, r={r:.2f}, "
+                    f"{slope * 1000:.0f} MB per 1k steps)",
+                    {"series": name, "floor_start_mb": start, "floor_end_mb": end, "peak_mb": float(s.max()),
+                     "slope_mb_per_step": slope, "trend_r": r}, ["memory_leak"], 0.8)]
         return []

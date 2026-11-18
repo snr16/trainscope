@@ -328,6 +328,18 @@ class Run:
         except Exception:
             log.debug("log_batch failed", exc_info=True)
 
+    def log_dataset_ids(self, split: str, ids: Iterable[Any], max_ids: int = 5000) -> None:
+        """Record stable sample ids (file paths, content hashes...) of a dataset split, once. Lets detectors
+        check train/eval overlap (leakage). Large splits are subsampled deterministically."""
+        try:
+            ids = [str(i) for i in ids]
+            if len(ids) > max_ids:
+                stride = len(ids) / max_ids
+                ids = [ids[int(k * stride)] for k in range(max_ids)]
+            self.event("dataset_ids", {"split": split, "n": len(ids), "ids": ids}, step=0)
+        except Exception:
+            log.debug("log_dataset_ids failed", exc_info=True)
+
     def log_eval(self, step: int, **metrics: Any) -> None:
         self.log_scalars(step, {f"eval/{k}": v for k, v in metrics.items()})
 

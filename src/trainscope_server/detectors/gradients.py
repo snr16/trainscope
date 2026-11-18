@@ -141,7 +141,8 @@ class GradCarryoverDetector(Detector):
         accum = int(data.cfg("grad_accum", "gradient_accumulation_steps", default=1) or 1)
         late = c.iloc[len(c) // 2 :]
         med = float(late.median())
-        limit = 2.0 * accum + 1.0
+        # without accumulation .grad must equal the latest backward exactly (ratio 1.00 in healthy runs)
+        limit = 1.15 if accum == 1 else 2.0 * accum + 1.0
         if med <= limit:
             return []
         return [

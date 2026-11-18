@@ -9,7 +9,7 @@ class SuspiciousDataDetector(Detector):
     name = "suspicious_data"
 
     def run(self, data: RunData) -> list[Finding]:
-        out: list[Finding] = []
+        out: list[Finding] = self._split_overlap(data)
         pad = finite(data.scalar("data/pad_ratio"))
         if len(pad) >= 3 and float(pad.median()) > 0.8:
             out.append(
@@ -71,4 +71,39 @@ class SuspiciousDataDetector(Detector):
                         0.4,
                     )
                 )
+        return out
+
+    @staticmethod
+    def _split_overlap(data: RunData) -> list[Finding]:
+        splits: dict[str, set[str]] = {}
+        for e in data.events_of("dataset_ids"):
+            splits.setdefault(e["payload"].get("split", ""), set()).update(e["payload"].get("ids", []))
+        train = splits.get("train", set())
+        evals = {k: v for k, v in splits.items() if k not in ("train", "") and v}
+        out = []
+        for name, ids in evals.items():
+            shared = train & ids
+            if not train or not shared:
+                continue
+            frac = len(shared) / len(ids)
+            if frac < 0.01:
+                continue
+            out.append(
+                Finding(
+                    "split_overlap",
+                    "critical",
+                    0,
+                    data.max_step,
+                    f"{len(shared)} of {len(ids)} logged {name} samples ({frac:.0%}) also appear in the training set",
+                    {
+                        "split": name,
+                        "overlap": len(shared),
+                        "eval_ids_logged": len(ids),
+                        "train_ids_logged": len(train),
+                        "examples": sorted(shared)[:5],
+                    },
+                    ["val_leakage"],
+                    0.95,
+                )
+            )
         return out

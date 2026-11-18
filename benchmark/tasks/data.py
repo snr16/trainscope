@@ -118,6 +118,17 @@ class TensorDS(Dataset):
         self.tensors = tensors
         self.cost = transform_cost_s
         self.ids_offset = ids_offset
+        self._ids: list[str] | None = None
+
+    @property
+    def ids(self) -> list[str]:
+        """Stable content hashes of the inputs (what a real pipeline gets from file paths / dedup hashes)."""
+        if self._ids is None:
+            import hashlib
+
+            x = self.tensors[0]
+            self._ids = [hashlib.sha1(x[i].numpy().tobytes()).hexdigest()[:12] for i in range(len(x))]
+        return self._ids
 
     def __len__(self) -> int:
         return len(self.tensors[0])

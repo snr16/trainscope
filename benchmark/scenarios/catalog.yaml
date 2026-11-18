@@ -17,9 +17,9 @@ lr_too_high:
   cause: lr_too_high
   tasks: [vision, text_clf, lm]
   severities:
-    mild: {lr_mult: 10, per_task: {lm: {lr_mult: 30}}}
-    severe: {lr_mult: 30, per_task: {lm: {lr_mult: 100}}}
-    extreme: {lr_mult: 100, per_task: {lm: {lr_mult: 300}}}
+    mild: {lr_mult: 10, per_task: {lm: {lr_mult: 30}, text_clf: {lr_mult: 20}}}
+    severe: {lr_mult: 30, per_task: {lm: {lr_mult: 100}, text_clf: {lr_mult: 40}}}
+    extreme: {lr_mult: 100, per_task: {lm: {lr_mult: 300}, text_clf: {lr_mult: 100}}}
   component: config.lr
   fixes: [{type: config_change, field: lr, value: default}]
 
@@ -154,7 +154,9 @@ dataloader_bottleneck:
 
 memory_leak:
   cause: memory_leak
-  tasks: [vision, lm]
+  # CPU/macOS only sees this through process RSS; the small vision graph is lost in RSS noise and page
+  # compression, so the scenario runs on the LM task (on CUDA/MPS, allocator stats make any task work)
+  tasks: [lm]
   severities:
     default: {bugs: [memory_leak]}
   component: code.training_loop

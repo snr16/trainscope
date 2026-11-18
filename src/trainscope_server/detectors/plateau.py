@@ -15,7 +15,7 @@ import numpy as np
 
 from .base import Detector, Finding, RunData, finite
 
-HIGH_UPDATE = 5e-3
+HIGH_UPDATE = 2e-3  # inside a plateau: label/loss bugs stayed <1e-3, LR-too-high plateaus >3.8e-3
 DEAD = 0.25
 
 
@@ -83,9 +83,20 @@ class PlateauDetector(Detector):
                 f"; up to {max_dead:.0%} dead units" if max_dead and max_dead > DEAD else ""
             )
         else:
-            causes = ["shuffled_labels", "double_softmax", "frozen_layers"]
-            detail = ""
-        learning = head > 0 and (head - tail) / abs(head) >= self.min_rel_drop
+            tr_acc = finite(data.scalar("train/accuracy"))
+            acc = float(tr_acc.iloc[-3:].mean()) if len(tr_acc) >= 3 else None
+            ev["train_accuracy"] = acc
+            if acc is not None and k and acc > 1.6 / k:
+                # loss can't move but the model still ranks the right class first: probabilities fed to the loss
+                causes = ["double_softmax", "shuffled_labels", "frozen_layers"]
+                detail = f"; yet train accuracy is {acc:.0%} (chance {1 / k:.0%}), so the model is learning"
+            else:
+                causes = ["shuffled_labels", "double_softmax", "frozen_layers"]
+                detail = f"; train accuracy at chance ({acc:.0%})" if acc is not None else ""
+        thrashing = causes[0] == "lr_too_high"
+        # with weights thrashing, a small drop is not learning: healthy runs here fall 60-80%
+        bar = 0.2 if thrashing else self.min_rel_drop
+        learning = head > 0 and (head - tail) / abs(head) >= bar
         if not learning:
             if chance and abs(tail - chance) < 0.1 * chance:
                 detail += f"; loss sits at chance level ln({k})={chance:.3g}"

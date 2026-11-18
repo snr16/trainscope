@@ -26,6 +26,7 @@ __all__ = [
     "log",
     "log_batch",
     "log_eval",
+    "log_dataset_ids",
     "log_scalars",
     "event",
     "finish",
@@ -65,6 +66,11 @@ def log(step: int, **scalars: Any) -> None:
 def log_batch(step: int, **kwargs: Any) -> None:
     if _run is not None:
         _run.log_batch(step, **kwargs)
+
+
+def log_dataset_ids(split: str, ids: Iterable[Any], **kwargs: Any) -> None:
+    if _run is not None:
+        _run.log_dataset_ids(split, ids, **kwargs)
 
 
 def log_eval(step: int, **metrics: Any) -> None:
