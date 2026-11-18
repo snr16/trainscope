@@ -15,9 +15,6 @@ import numpy as np
 
 from .base import Detector, Finding, RunData, finite
 
-HIGH_UPDATE = 2e-3  # inside a plateau: label/loss bugs stayed <1e-3, LR-too-high plateaus >3.8e-3
-DEAD = 0.25
-
 
 def weight_motion(data: RunData) -> tuple[float | None, float | None]:
     upd = data.layers("weight/update_ratio")
@@ -33,8 +30,21 @@ class PlateauDetector(Detector):
     name = "plateau"
     min_steps = 60
 
-    def __init__(self, min_rel_drop: float = 0.05):
-        self.min_rel_drop = min_rel_drop
+    # plateau, chance-level and bad-init thresholds
+    defaults = {
+        "min_rel_drop": 0.05,  # loss must fall at least this fraction to count as learning
+        "thrash_min_drop": 0.2,  # ... and this much when the weights are thrashing
+        "high_update": 0.002,  # median update ratio above this inside a plateau = LR too high
+        "frozen_update": 1e-06,  # median update ratio below this = weights not moving
+        "dead_frac": 0.25,  # a layer with more dead units than this = LR too high / bad init
+        "bad_init_x_chance": 2.0,  # step-0 loss this many x ln(num_classes) = bad init
+        "bad_init_critical_x": 3.0,  # ... this many x = critical
+        "rising_x": 1.5,  # loss ending this many x its start is divergence, not a plateau
+        "double_softmax_acc_x": 1.6,  # train accuracy above this x chance while loss is stuck = double softmax
+        "chance_band": 0.1,  # within this fraction of ln(num_classes) = sitting at chance
+        "near_chance": 0.95,  # final loss above this fraction of chance = stuck near chance
+        "near_chance_head_x": 1.5,  # ... when the run also started below this x chance
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         raw = data.scalar("loss")
@@ -59,11 +69,11 @@ class PlateauDetector(Detector):
             "max_dead_unit_frac": max_dead,
             "median_grad_norm": float(grad.median()) if len(grad) else None,
         }
-        if chance and first > 2 * chance:
+        if chance and first > self.bad_init_x_chance * chance:
             out.append(
                 Finding(
                     "bad_initial_loss",
-                    "critical" if first > 3 * chance else "warning",
+                    "critical" if first > self.bad_init_critical_x * chance else "warning",
                     int(loss.index[0]),
                     int(loss.index[min(n - 1, 10)]),
                     f"loss at step 0 is {first:.3g}, far above chance level ln({k})={chance:.3g}",
@@ -72,21 +82,23 @@ class PlateauDetector(Detector):
                     0.8,
                 )
             )
-        if len(loss) < len(raw) or tail > 1.5 * head:
+        if len(loss) < len(raw) or tail > self.rising_x * head:
             return out  # NaN or rising loss: the divergence detector owns this
-        if med_upd is not None and med_upd < 1e-6:
+        if med_upd is not None and med_upd < self.frozen_update:
             causes = ["frozen_layers", "fp16_no_loss_scaling", "lr_too_high"]
             detail = f"; weights barely move (median update ratio {med_upd:.1e})"
-        elif (med_upd is not None and med_upd > HIGH_UPDATE) or (max_dead is not None and max_dead > DEAD):
+        elif (med_upd is not None and med_upd > self.high_update) or (
+            max_dead is not None and max_dead > self.dead_frac
+        ):
             causes = ["lr_too_high", "missing_warmup"]
             detail = (f"; weights move a lot (median update ratio {med_upd:.1e})" if med_upd else "") + (
-                f"; up to {max_dead:.0%} dead units" if max_dead and max_dead > DEAD else ""
+                f"; up to {max_dead:.0%} dead units" if max_dead and max_dead > self.dead_frac else ""
             )
         else:
             tr_acc = finite(data.scalar("train/accuracy"))
             acc = float(tr_acc.iloc[-3:].mean()) if len(tr_acc) >= 3 else None
             ev["train_accuracy"] = acc
-            if acc is not None and k and acc > 1.6 / k:
+            if acc is not None and k and acc > self.double_softmax_acc_x / k:
                 # loss can't move but the model still ranks the right class first: probabilities fed to the loss
                 causes = ["double_softmax", "shuffled_labels", "frozen_layers"]
                 detail = f"; yet train accuracy is {acc:.0%} (chance {1 / k:.0%}), so the model is learning"
@@ -95,10 +107,10 @@ class PlateauDetector(Detector):
                 detail = f"; train accuracy at chance ({acc:.0%})" if acc is not None else ""
         thrashing = causes[0] == "lr_too_high"
         # with weights thrashing, a small drop is not learning: healthy runs here fall 60-80%
-        bar = 0.2 if thrashing else self.min_rel_drop
+        bar = self.thrash_min_drop if thrashing else self.min_rel_drop
         learning = head > 0 and (head - tail) / abs(head) >= bar
         if not learning:
-            if chance and abs(tail - chance) < 0.1 * chance:
+            if chance and abs(tail - chance) < self.chance_band * chance:
                 detail += f"; loss sits at chance level ln({k})={chance:.3g}"
             out.append(
                 Finding(
@@ -112,7 +124,7 @@ class PlateauDetector(Detector):
                     0.7,
                 )
             )
-        elif chance and tail > 0.95 * chance and head < 1.5 * chance:
+        elif chance and tail > self.near_chance * chance and head < self.near_chance_head_x * chance:
             out.append(
                 Finding(
                     self.name,

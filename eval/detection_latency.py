@@ -30,9 +30,14 @@ OUT_DIR = ROOT / "results" / "eval"
 def top_cause(store: Any, run_id: str, upto: int, cache: dict[str, Any]) -> str:
     if run_id not in cache:
         run = store.get_run(run_id) or {}
-        cache[run_id] = (store.metrics_df(run_id), run.get("config"), store.events(run_id))
-    df, cfg, events = cache[run_id]
-    fs = run_detectors(RunData(df, cfg, events, upto_step=upto))
+        cache[run_id] = (
+            store.metrics_df(run_id),
+            run.get("config"),
+            store.events(run_id),
+            run.get("project"),
+        )
+    df, cfg, events, project = cache[run_id]
+    fs = run_detectors(RunData(df, cfg, events, upto_step=upto, project=project))
     return (fs[0].suspected_causes or ["healthy"])[0] if fs else "healthy"
 
 

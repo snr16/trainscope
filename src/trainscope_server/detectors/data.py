@@ -7,11 +7,19 @@ from .base import Detector, Finding, RunData, finite
 
 class SuspiciousDataDetector(Detector):
     name = "suspicious_data"
+    # data thresholds
+    defaults = {
+        "max_pad": 0.8,  # median share of padding tokens per batch
+        "majority_frac": 0.6,  # one class above this share of labels per batch
+        "majority_x_uniform": 3.0,  # ... or above this x its uniform share, whichever is larger
+        "label_shift": 0.25,  # label distribution shift (total variation) between run halves
+        "min_overlap": 0.01,  # share of eval samples also in training that counts as leakage
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         out: list[Finding] = self._split_overlap(data)
         pad = finite(data.scalar("data/pad_ratio"))
-        if len(pad) >= 3 and float(pad.median()) > 0.8:
+        if len(pad) >= 3 and float(pad.median()) > self.max_pad:
             out.append(
                 Finding(
                     "extreme_padding",
@@ -41,7 +49,7 @@ class SuspiciousDataDetector(Detector):
         k = data.cfg("num_classes")
         if len(maj) >= 3 and k:
             m = float(maj.median())
-            if m > max(0.6, 3.0 / k):
+            if m > max(self.majority_frac, self.majority_x_uniform / k):
                 out.append(
                     Finding(
                         "label_imbalance",
@@ -58,7 +66,7 @@ class SuspiciousDataDetector(Detector):
         if len(lf) >= 6:
             h = len(lf) // 2
             shift = float((lf.iloc[:h].mean() - lf.iloc[h:].mean()).abs().sum() / 2)
-            if shift > 0.25:
+            if shift > self.label_shift:
                 out.append(
                     Finding(
                         "label_shift",
@@ -73,8 +81,7 @@ class SuspiciousDataDetector(Detector):
                 )
         return out
 
-    @staticmethod
-    def _split_overlap(data: RunData) -> list[Finding]:
+    def _split_overlap(self, data: RunData) -> list[Finding]:
         splits: dict[str, set[str]] = {}
         for e in data.events_of("dataset_ids"):
             splits.setdefault(e["payload"].get("split", ""), set()).update(e["payload"].get("ids", []))
@@ -86,7 +93,7 @@ class SuspiciousDataDetector(Detector):
             if not train or not shared:
                 continue
             frac = len(shared) / len(ids)
-            if frac < 0.01:
+            if frac < self.min_overlap:
                 continue
             out.append(
                 Finding(

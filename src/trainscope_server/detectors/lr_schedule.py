@@ -38,8 +38,14 @@ def expected_lr(
 class LRScheduleDetector(Detector):
     name = "lr_schedule"
 
-    def __init__(self, tol: float = 0.25):
-        self.tol = tol
+    # learning-rate schedule thresholds
+    defaults = {
+        "tol": 0.25,  # logged LR off from the configured schedule by more than this fraction
+        "min_mismatch": 0.2,  # ... on at least this share of steps
+        "warmup_lr_frac": 0.5,  # LR at step 0 above this fraction of the peak = warmup missing
+        "min_reversals": 4,  # LR changing direction this many times = scheduler period too short
+        "peak_x": 1.5,  # LR peaking above this x the configured value
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         lr = finite(data.scalar("lr"))
@@ -70,8 +76,8 @@ class LRScheduleDetector(Detector):
         )
         rel = (lr - exp).abs() / (exp.abs() + base * 1e-3)
         bad = rel[rel > self.tol]
-        no_warmup = bool(warmup and float(lr.iloc[0]) > 0.5 * base)
-        if len(bad) / len(rel) < 0.2 and not no_warmup:
+        no_warmup = bool(warmup and float(lr.iloc[0]) > self.warmup_lr_frac * base)
+        if len(bad) / len(rel) < self.min_mismatch and not no_warmup:
             return out
         n_unique = lr.round(12).nunique()
         observed = {
@@ -92,13 +98,13 @@ class LRScheduleDetector(Detector):
         d = d[d != 0]
         reversals = int((d[1:] != d[:-1]).sum()) if len(d) > 1 else 0
         observed["direction_changes"] = reversals
-        if sched != "constant" and reversals >= 4:
+        if sched != "constant" and reversals >= self.min_reversals:
             reason = (
                 f"LR oscillates ({reversals} up/down reversals) instead of following one {sched} cycle; "
                 "scheduler period is far shorter than the run (e.g. T_max in epochs but stepped per batch)"
             )
             causes = ["scheduler_misstep"]
-        elif warmup and lr.iloc[0] > 0.5 * base:
+        elif warmup and lr.iloc[0] > self.warmup_lr_frac * base:
             reason, causes = (
                 "no warmup: LR starts at its peak although warmup is configured",
                 ["missing_warmup"],
@@ -112,7 +118,7 @@ class LRScheduleDetector(Detector):
             and lr.index[-1] < total * 0.6
         ):
             reason, causes = "LR decayed far faster than configured", ["scheduler_misstep"]
-        elif float(lr.max()) > 1.5 * base:
+        elif float(lr.max()) > self.peak_x * base:
             reason, causes = (
                 f"LR peaks at {float(lr.max()):.3g}, above configured {base:.3g}",
                 ["lr_too_high"],

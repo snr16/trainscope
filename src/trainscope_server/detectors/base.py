@@ -64,6 +64,7 @@ class RunData:
         config: dict[str, Any] | None = None,
         events: list[dict[str, Any]] | None = None,
         upto_step: int | None = None,
+        project: str | None = None,
     ):
         if upto_step is not None and len(df):
             df = df[df["step"] <= upto_step]
@@ -71,11 +72,18 @@ class RunData:
         self.df = df
         self.config = config or {}
         self.events = events or []
+        self.project = project  # selects per-project detector thresholds
 
     @classmethod
     def from_store(cls, store: Any, run_id: str, upto_step: int | None = None) -> RunData:
         run = store.get_run(run_id) or {}
-        return cls(store.metrics_df(run_id), run.get("config"), store.events(run_id), upto_step)
+        return cls(
+            store.metrics_df(run_id),
+            run.get("config"),
+            store.events(run_id),
+            upto_step,
+            project=run.get("project"),
+        )
 
     @cached_property
     def _by_name(self) -> dict[str, pd.DataFrame]:
@@ -113,8 +121,27 @@ class RunData:
 
 
 class Detector:
+    """A failure rule. Its tunable thresholds live in ``defaults`` and can be overridden per instance
+    (``detectors.yaml`` does this per project); each value becomes an attribute of the same name."""
+
     name = "base"
     min_steps = 20
+    defaults: dict[str, float] = {}
+
+    def __init__(self, **overrides: float):
+        unknown = set(overrides) - set(self.defaults)
+        if unknown:
+            raise ValueError(
+                f"{self.name}: unknown threshold(s) {sorted(unknown)}; known: {sorted(self.defaults)}"
+            )
+        self.params = {**self.defaults, **overrides}
+
+    def __getattr__(self, name: str) -> Any:
+        # thresholds read as attributes (self.wait_frac); only called for names not found the normal way
+        params = self.__dict__.get("params", {})
+        if name in params:
+            return params[name]
+        raise AttributeError(f"{type(self).__name__} has no attribute {name!r}")
 
     def run(self, data: RunData) -> list[Finding]:
         raise NotImplementedError

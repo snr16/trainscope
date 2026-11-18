@@ -7,6 +7,12 @@ from .base import Detector, Finding, RunData, finite
 
 class AmpOverflowDetector(Detector):
     name = "amp_overflow"
+    # mixed-precision thresholds
+    defaults = {
+        "skipped_frac": 0.1,  # share of steps skipped for overflow
+        "min_scale": 1.0,  # loss scale collapsing below this
+        "underflow_zero_frac": 0.5,  # fp16 without a scaler: median share of exactly-zero gradient entries
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         out: list[Finding] = []
@@ -15,7 +21,7 @@ class AmpOverflowDetector(Detector):
         if len(sc) >= 5 and len(sk):
             skipped = float(sk.iloc[-1])
             frac = skipped / max(len(sc), 1)
-            if frac > 0.1 or float(sc.min()) < 1.0:
+            if frac > self.skipped_frac or float(sc.min()) < self.min_scale:
                 out.append(
                     Finding(
                         self.name,
@@ -45,7 +51,7 @@ class AmpOverflowDetector(Detector):
                 else None
             )
             zf = float(zero_g.median()) if zero_g is not None and len(zero_g) else None
-            if nonfinite or (zf is not None and zf > 0.5):
+            if nonfinite or (zf is not None and zf > self.underflow_zero_frac):
                 out.append(
                     Finding(
                         "fp16_unscaled",

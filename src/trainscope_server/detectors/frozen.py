@@ -10,8 +10,11 @@ from .base import Detector, Finding, RunData
 class FrozenLayerDetector(Detector):
     name = "frozen_layers"
 
-    def __init__(self, eps: float = 1e-9):
-        self.eps = eps
+    # frozen-layer thresholds
+    defaults = {
+        "eps": 1e-09,  # max update ratio at or below this = layer never changes
+        "critical_frac": 0.5,  # this fraction of layers frozen or more = critical
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         upd = data.layers("weight/update_ratio")
@@ -36,7 +39,7 @@ class FrozenLayerDetector(Detector):
             len(upd.columns) if not upd.empty else 0, len(trainable.columns) if not trainable.empty else 0
         )
         frac = len(frozen) / max(n_layers, 1)
-        sev = "critical" if frac >= 0.5 else "warning"
+        sev = "critical" if frac >= self.critical_frac else "warning"
         names = list(frozen)
         return [
             Finding(
@@ -58,13 +61,17 @@ class FrozenLayerDetector(Detector):
 
 class TrainModeDetector(Detector):
     name = "eval_mode_training"
+    # eval-mode threshold
+    defaults = {
+        "eval_frac": 0.8,  # model in eval mode on at least this fraction of sampled steps
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         tm = data.scalar("model/train_mode")
         if len(tm) < 3:
             return []
         frac = float(np.mean(tm.to_numpy() == 0))
-        if frac < 0.8:
+        if frac < self.eval_frac:
             return []
         return [
             Finding(

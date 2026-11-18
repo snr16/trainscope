@@ -23,10 +23,14 @@ class MemoryLeakDetector(Detector):
 
     name = "memory_leak"
 
-    def __init__(self, min_growth_mb: float = 100.0, min_r: float = 0.5):
-        # dev set: non-leaking runs grew their RSS floor by <=29 MB (9%), leaks by >=138 MB (33%), often
-        # in steps (r ~0.6), so the size of the growth does the work and the trend bar stays loose
-        self.min_growth_mb, self.min_r = min_growth_mb, min_r
+    # dev set: non-leaking runs grew their RSS floor by <=29 MB (9%), leaks by >=138 MB (33%), often in steps
+    # (r ~0.6), so the size of the growth does the work and the trend bar stays loose
+    defaults = {
+        "min_growth_mb": 100.0,  # memory floor must grow at least this many MB
+        "min_growth_frac": 0.2,  # ... and this fraction of its starting value
+        "min_r": 0.5,  # ... with at least this upward trend (correlation with step)
+        "critical_frac": 0.4,  # growth above this fraction of the start = critical
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         for name in _SERIES:
@@ -41,11 +45,15 @@ class MemoryLeakDetector(Detector):
             start, end = float(floor.iloc[0]), float(floor.iloc[-1])
             growth = end - start
             slope, r = trend(floor)
-            if growth > self.min_growth_mb and growth > 0.2 * max(start, 1.0) and r > self.min_r:
+            if (
+                growth > self.min_growth_mb
+                and growth > self.min_growth_frac * max(start, 1.0)
+                and r > self.min_r
+            ):
                 return [
                     Finding(
                         self.name,
-                        "critical" if growth > 0.4 * start else "warning",
+                        "critical" if growth > self.critical_frac * start else "warning",
                         int(floor.index[0]),
                         int(floor.index[-1]),
                         f"{name} floor grew steadily by {growth:.0f} MB ({start:.0f} -> {end:.0f}, r={r:.2f}, "

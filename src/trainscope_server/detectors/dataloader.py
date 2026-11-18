@@ -8,8 +8,11 @@ from .base import Detector, Finding, RunData, finite
 class DataLoaderDetector(Detector):
     name = "dataloader_bottleneck"
 
-    def __init__(self, wait_frac: float = 0.3):
-        self.wait_frac = wait_frac
+    # data-loader thresholds
+    defaults = {
+        "wait_frac": 0.3,  # median share of each step spent waiting for data
+        "critical_wait": 0.5,  # above this share = critical
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         w = finite(data.scalar("data_wait_frac"))
@@ -33,7 +36,7 @@ class DataLoaderDetector(Detector):
         return [
             Finding(
                 self.name,
-                "critical" if med > 0.5 else "warning",
+                "critical" if med > self.critical_wait else "warning",
                 int(w.index[0]),
                 int(w.index[-1]),
                 msg,

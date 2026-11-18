@@ -37,8 +37,16 @@ def main(argv: list[str] | None = None) -> None:
         "--spool-dir", default=os.environ.get("TRAINSCOPE_SPOOL", os.path.expanduser("~/.trainscope/spool"))
     )
     pr.add_argument("--keep", action="store_true", help="keep spool files after a successful replay")
+    pd = sub.add_parser("detectors", help="print detector thresholds as a starting detectors.yaml")
+    pd.add_argument(
+        "--check", metavar="FILE", help="validate a detectors.yaml and show the thresholds it results in"
+    )
+    pd.add_argument("--project", help="with --check: show the thresholds for this project")
     a = p.parse_args(argv)
 
+    if a.cmd == "detectors":
+        print(detectors_yaml(a.check, a.project))
+        return
     if a.cmd == "replay":
         print(json.dumps(replay(a), indent=2))
         return
@@ -73,6 +81,48 @@ def main(argv: list[str] | None = None) -> None:
 
             out = refresh_findings(store, a.run_id)
     print(json.dumps(out, indent=2, default=str))
+
+
+def _yaml_num(v: float | int) -> str:
+    """A number YAML reads back as a number: '1e-06' is a string in YAML 1.1, '1.0e-06' is a float."""
+    s = repr(v)
+    if "e" in s and "." not in s.split("e")[0]:
+        mant, exp = s.split("e")
+        s = f"{mant}.0e{exp}"
+    return s
+
+
+def detectors_yaml(check: str | None = None, project: str | None = None) -> str:
+    """Every detector's thresholds as YAML, each with its description from the detector source."""
+    import inspect
+    import re
+
+    from trainscope_server.detectors import DETECTOR_CLASSES
+    from trainscope_server.detectors.config import build, load_file
+
+    cfg = load_file(check, DETECTOR_CLASSES) if check else None
+    active = {d.name: d.params for d in build(DETECTOR_CLASSES, cfg, project)}
+    head = (
+        f"# effective thresholds from {check}" + (f" for project {project!r}" if project else "")
+        if check
+        else "# TrainScope detector thresholds (built-in defaults). Copy what you want to change into\n"
+        "# a detectors.yaml under `defaults:` or `projects: <name>:`, then set TRAINSCOPE_DETECTORS to its path."
+    )
+    lines = [head, "defaults:"]
+    for name, cls in DETECTOR_CLASSES.items():
+        if name not in active:
+            lines.append(f"  # {name}: disabled")
+            continue
+        if not cls.defaults:
+            continue
+        src = inspect.getsource(cls)
+        lines.append(f"  {name}:")
+        for key, value in active[name].items():
+            m = re.search(rf'"{re.escape(key)}":\s*[^,]+,\s*#\s*(.+)', src)
+            note = f"  # {m.group(1).strip()}" if m else ""
+            changed = "" if value == cls.defaults[key] else f"  (default {cls.defaults[key]})"
+            lines.append(f"    {key}: {_yaml_num(value)}{note}{changed}")
+    return "\n".join(lines)
 
 
 def replay(a: argparse.Namespace) -> dict:

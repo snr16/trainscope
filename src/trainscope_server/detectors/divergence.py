@@ -32,8 +32,14 @@ def _nan_causes(data: RunData, grew: bool) -> list[str]:
 class DivergenceDetector(Detector):
     name = "divergence"
 
-    def __init__(self, rise_factor: float = 1.5):
-        self.rise_factor = rise_factor
+    # loss-rise and NaN-context thresholds
+    defaults = {
+        "rise_factor": 1.5,  # smoothed loss above its best by this factor = diverging
+        "rise_above_start": 0.9,  # ... and still at least this fraction of the starting loss
+        "nan_grad_growth": 10.0,  # grad norm this many x its early median right before a NaN = blow-up
+        "ended_above_start": 1.2,  # final loss this many x the starting loss = warning
+        "min_steps_ended_higher": 50,  # steps needed before that warning
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         loss = data.scalar("loss")
@@ -51,7 +57,7 @@ class DivergenceDetector(Detector):
             gpre = grad[grad.index < first]
             g_before = float(gpre.iloc[-1]) if len(gpre) else None
             g_med = float(gpre.iloc[: max(1, len(gpre) // 2)].median()) if len(gpre) else None
-            grew = bool(g_before and g_med and g_before > 10 * g_med)
+            grew = bool(g_before and g_med and g_before > self.nan_grad_growth * g_med)
             ev: dict[str, Any] = {
                 "first_nonfinite_step": first,
                 "last_finite_loss": float(pre.iloc[-1]) if len(pre) else None,
@@ -93,7 +99,12 @@ class DivergenceDetector(Detector):
         causes = (
             ["exploding_no_clip", "lr_too_high"] if _clip_off(data) else ["lr_too_high", "missing_warmup"]
         )
-        if best > 0 and last > best * self.rise_factor and last > start * 0.9 and best_step < sm.index[-1]:
+        if (
+            best > 0
+            and last > best * self.rise_factor
+            and last > start * self.rise_above_start
+            and best_step < sm.index[-1]
+        ):
             rose = (last / best - 1) * 100
             out.append(
                 Finding(
@@ -107,7 +118,12 @@ class DivergenceDetector(Detector):
                     0.7,
                 )
             )
-        elif start > 0 and math.isfinite(last) and last > start * 1.2 and len(fl) > 50:
+        elif (
+            start > 0
+            and math.isfinite(last)
+            and last > start * self.ended_above_start
+            and len(fl) > self.min_steps_ended_higher
+        ):
             out.append(
                 Finding(
                     self.name,

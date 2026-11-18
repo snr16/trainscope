@@ -66,7 +66,7 @@ class TrainScopeTools:
 
     def _findings(self, run_id: str) -> list[dict[str, Any]]:
         run = self._run(run_id)
-        data = RunData(self._df(run_id), run.get("config"), self._events(run_id))
+        data = RunData(self._df(run_id), run.get("config"), self._events(run_id), project=run.get("project"))
         return [f.to_dict(run_id) for f in run_detectors(data)]
 
     def _out(self, d: dict[str, Any]) -> dict[str, Any]:

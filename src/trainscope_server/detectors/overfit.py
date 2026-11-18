@@ -7,6 +7,14 @@ from .base import Detector, Finding, RunData, finite
 
 class OverfittingDetector(Detector):
     name = "overfitting"
+    # overfitting and leakage thresholds
+    defaults = {
+        "rise_x": 1.15,  # final eval loss this many x its best = overfitting
+        "sustained_x": 1.1,  # the last two evals must both be above this x the best
+        "train_drop": 0.9,  # ... while train loss fell below this fraction of its value at the best eval
+        "critical_x": 1.5,  # eval loss this many x its best = critical
+        "leak_loss_ratio": 0.9,  # eval loss below this fraction of train loss (with higher eval accuracy) = leakage
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         ev = finite(data.scalar("eval/loss"))
@@ -24,14 +32,14 @@ class OverfittingDetector(Detector):
         )
         tr_last = float(tr.iloc[-max(5, len(tr) // 20) :].mean())
         after = ev[ev.index > best_step]
-        sustained = len(after) >= 2 and float(after.iloc[-2:].min()) > best * 1.1
-        if sustained and last > best * 1.15 and tr_last < tr_at_best * 0.9:
+        sustained = len(after) >= 2 and float(after.iloc[-2:].min()) > best * self.sustained_x
+        if sustained and last > best * self.rise_x and tr_last < tr_at_best * self.train_drop:
             gap = last - tr_last
             ev_acc = finite(data.scalar("eval/accuracy"))
             out.append(
                 Finding(
                     self.name,
-                    "warning" if last < best * 1.5 else "critical",
+                    "warning" if last < best * self.critical_x else "critical",
                     best_step,
                     int(ev.index[-1]),
                     f"eval loss rose {((last / best) - 1) * 100:.0f}% after step {best_step} while train loss kept "
@@ -61,7 +69,7 @@ class OverfittingDetector(Detector):
             else None
         )
         if (
-            ev_tail < 0.9 * tr_tail and acc_gap is not None and acc_gap > 0
+            ev_tail < self.leak_loss_ratio * tr_tail and acc_gap is not None and acc_gap > 0
         ):  # LM-style runs: dropout alone does this
             out.append(
                 Finding(

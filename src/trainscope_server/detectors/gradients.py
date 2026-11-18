@@ -10,8 +10,14 @@ from .base import Detector, Finding, RunData, finite, trend
 class ExplodingGradientDetector(Detector):
     name = "exploding_gradients"
 
-    def __init__(self, ratio: float = 20.0):
-        self.ratio = ratio
+    # gradient blow-up and steady-growth thresholds
+    defaults = {
+        "ratio": 20.0,  # peak grad norm this many x the early median = exploding
+        "onset_x": 5.0,  # the blow-up starts where grad norm first exceeds this x the early median
+        "growth_r": 0.9,  # correlation of grad norm with step above this = steady growth
+        "growth_min_x": 4.0,  # ... and the last value at least this x the early median
+        "growth_min_samples": 8,  # samples needed for the growth check
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         g = finite(data.scalar("grad/global_norm"))
@@ -43,7 +49,9 @@ class ExplodingGradientDetector(Detector):
                 Finding(
                     self.name,
                     "critical",
-                    int(g[g > base * 5].index[0]) if (g > base * 5).any() else peak_step,
+                    int(g[g > base * self.onset_x].index[0])
+                    if (g > base * self.onset_x).any()
+                    else peak_step,
                     peak_step,
                     f"global grad norm rose {peak / base:.0f}x (median {base:.3g} -> {peak:.3g} at step {peak_step})"
                     + (f"; largest growth in {top_layers[0]['layer']}" if top_layers else ""),
@@ -61,7 +69,11 @@ class ExplodingGradientDetector(Detector):
                 )
             )
         # steady, near-linear growth of the gradient norm: accumulation without zero_grad / unscaled accumulation
-        if r > 0.9 and len(g) >= 8 and float(g.iloc[-1]) > 4 * max(base, 1e-12):
+        if (
+            r > self.growth_r
+            and len(g) >= self.growth_min_samples
+            and float(g.iloc[-1]) > self.growth_min_x * max(base, 1e-12)
+        ):
             out.append(
                 Finding(
                     "grad_norm_growth",
@@ -85,8 +97,11 @@ class ExplodingGradientDetector(Detector):
 class VanishingGradientDetector(Detector):
     name = "vanishing_gradients"
 
-    def __init__(self, rel: float = 1e-4, dead_frac: float = 0.25):
-        self.rel, self.dead_frac = rel, dead_frac
+    # vanishing-gradient and dead-unit thresholds
+    defaults = {
+        "rel": 0.0001,  # a layer's grad norm below this fraction of the largest layer's = vanishing
+        "dead_frac": 0.25,  # a layer with more dead units than this (late in the run)
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         out: list[Finding] = []
@@ -133,6 +148,11 @@ class GradCarryoverDetector(Detector):
     """`.grad` holds much more than the latest backward pass contributed: gradients are not being zeroed."""
 
     name = "grad_carryover"
+    # gradient carry-over thresholds
+    defaults = {
+        "max_ratio": 1.15,  # .grad / latest backward above this with no accumulation = zero_grad missing
+        "accum_slack": 2.0,  # with accumulation k, allow up to slack*k + 1
+    }
 
     def run(self, data: RunData) -> list[Finding]:
         c = finite(data.scalar("grad/carryover_ratio"))
@@ -142,7 +162,7 @@ class GradCarryoverDetector(Detector):
         late = c.iloc[len(c) // 2 :]
         med = float(late.median())
         # without accumulation .grad must equal the latest backward exactly (ratio 1.00 in healthy runs)
-        limit = 1.15 if accum == 1 else 2.0 * accum + 1.0
+        limit = self.max_ratio if accum == 1 else self.accum_slack * accum + 1.0
         if med <= limit:
             return []
         return [

@@ -8,6 +8,7 @@ from typing import Any
 
 from .amp import AmpOverflowDetector
 from .base import SEVERITY_RANK, Detector, Finding, RunData
+from .config import ConfigCache
 from .data import SuspiciousDataDetector
 from .dataloader import DataLoaderDetector
 from .divergence import DivergenceDetector
@@ -21,22 +22,34 @@ from .spikes import LossSpikeDetector
 
 log = logging.getLogger("trainscope.detectors")
 
-DETECTORS: list[Detector] = [
-    DivergenceDetector(),
-    LossSpikeDetector(),
-    PlateauDetector(),
-    ExplodingGradientDetector(),
-    GradCarryoverDetector(),
-    VanishingGradientDetector(),
-    FrozenLayerDetector(),
-    TrainModeDetector(),
-    OverfittingDetector(),
-    DataLoaderDetector(),
-    MemoryLeakDetector(),
-    AmpOverflowDetector(),
-    LRScheduleDetector(),
-    SuspiciousDataDetector(),
-]
+# every detector, keyed by the name used in findings and in detectors.yaml (order = evaluation order)
+DETECTOR_CLASSES: dict[str, type[Detector]] = {
+    cls.name: cls
+    for cls in (
+        DivergenceDetector,
+        LossSpikeDetector,
+        PlateauDetector,
+        ExplodingGradientDetector,
+        GradCarryoverDetector,
+        VanishingGradientDetector,
+        FrozenLayerDetector,
+        TrainModeDetector,
+        OverfittingDetector,
+        DataLoaderDetector,
+        MemoryLeakDetector,
+        AmpOverflowDetector,
+        LRScheduleDetector,
+        SuspiciousDataDetector,
+    )
+}
+# detectors with their built-in thresholds (no config file)
+DETECTORS: list[Detector] = [cls() for cls in DETECTOR_CLASSES.values()]
+_config = ConfigCache(DETECTOR_CLASSES)
+
+
+def detectors_for(project: str | None = None) -> list[Detector]:
+    """Detectors with thresholds from $TRAINSCOPE_DETECTORS (if set) for this project."""
+    return _config.detectors_for(project)
 
 
 def rank_findings(findings: list[Finding]) -> list[Finding]:
@@ -45,7 +58,7 @@ def rank_findings(findings: list[Finding]) -> list[Finding]:
 
 def run_detectors(data: RunData, detectors: list[Detector] | None = None) -> list[Finding]:
     out: list[Finding] = []
-    for d in detectors or DETECTORS:
+    for d in detectors if detectors is not None else detectors_for(data.project):
         try:
             out.extend(d.run(data))
         except Exception:
