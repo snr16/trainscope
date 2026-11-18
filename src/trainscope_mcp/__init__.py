@@ -1,0 +1,1 @@
+"""TrainScope MCP server."""
