@@ -11,3 +11,7 @@ max_tool_calls: 12
 
 # Parallel API requests
 concurrency: 4
+
+# On the dev split, LLM conditions (A-D) run on this many runs per failure cause (~17 runs at 1).
+# Dev is for tuning detectors (free); the full LLM comparison runs once on the test split. 0 = all dev runs.
+dev_sample_per_cause: 1

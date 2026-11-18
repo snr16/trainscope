@@ -68,7 +68,21 @@ CANONICAL_LOCATION: dict[str, str] = {
 
 
 CONFIG_PATH = Path(__file__).with_name("config.yaml")
-CONFIG_DEFAULTS: dict[str, Any] = {"models": [], "effort": "medium", "max_tool_calls": 12, "concurrency": 4}
+CONFIG_DEFAULTS: dict[str, Any] = {
+    "models": [],
+    "effort": "medium",
+    "max_tool_calls": 12,
+    "concurrency": 4,
+    "dev_sample_per_cause": 1,
+}
+
+
+def sample_per_cause(truths: list[dict[str, Any]], k: int) -> list[dict[str, Any]]:
+    """Deterministic stratified sample: the first k runs (by run id) of every cause."""
+    by_cause: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for t in sorted(truths, key=lambda t: t["run_id"]):
+        by_cause[t["cause"]].append(t)
+    return [t for runs in by_cause.values() for t in runs[:k]]
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
@@ -177,14 +191,26 @@ async def main_async(args: Any) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUT_DIR / f"{tag}.jsonl"
     sem = asyncio.Semaphore(args.concurrency)
+    # LLM conditions cost money: on the dev split they only need a small sample to sanity-check the prompt and
+    # tools (dev is for tuning detectors, which is free). The test split always runs in full.
+    llm_truths = truths
+    if args.split == "dev" and args.dev_sample_per_cause > 0 and not args.limit:
+        llm_truths = sample_per_cause(truths, args.dev_sample_per_cause)
     jobs = []
     for cond in args.conditions:
-        models = ["detectors"] if not CONDITIONS[cond].uses_llm else args.models
+        uses_llm = CONDITIONS[cond].uses_llm
+        models = args.models if uses_llm else ["detectors"]
         for model in models:
-            for rep in range(args.repeats if CONDITIONS[cond].uses_llm else 1):
-                for t in truths:
+            for rep in range(args.repeats if uses_llm else 1):
+                for t in llm_truths if uses_llm else truths:
                     jobs.append((cond, model, rep, t))
-    print(f"{len(jobs)} diagnoses over {len(truths)} runs -> {out_path}")
+    n_llm = sum(CONDITIONS[c].uses_llm for c, *_ in jobs)
+    print(f"{len(jobs)} diagnoses ({n_llm} LLM) -> {out_path}")
+    if n_llm and llm_truths is not truths:
+        print(
+            f"dev split: LLM conditions use {len(llm_truths)} of {len(truths)} runs "
+            f"({args.dev_sample_per_cause} per cause; set dev_sample_per_cause: 0 in the config for all)"
+        )
 
     async def one(cond: str, model: str, rep: int, t: dict[str, Any]) -> dict[str, Any]:
         async with sem:
@@ -231,7 +257,8 @@ def print_summary(results: list[dict[str, Any]]) -> None:
     for r in results:
         groups[(r["condition"], r["model"])].append(r)
     print(
-        f"\n{'cond':4} {'model':20} {'n':>4} {'cause':>6} {'categ':>6} {'loc':>6} {'fix':>6} {'calls':>6} {'$/diag':>8}"
+        f"\n{'cond':4} {'model':20} {'n':>4} {'cause':>6} {'categ':>6} {'loc':>6} {'fix':>6} {'calls':>6} "
+        f"{'$/diag':>8} {'cached':>7}"
     )
     for (c, m), rs in sorted(groups.items()):
         n = len(rs)
@@ -241,9 +268,14 @@ def print_summary(results: list[dict[str, Any]]) -> None:
 
         calls = sum(len(r["transcript"].get("tool_calls", [])) for r in rs) / n
         cost = sum(r["transcript"].get("cost_usd", 0) for r in rs) / n
+        read = sum(r["transcript"].get("cache_read_tokens", 0) for r in rs)
+        total_in = read + sum(
+            r["transcript"].get("input_tokens", 0) + r["transcript"].get("cache_write_tokens", 0) for r in rs
+        )
+        cached = f"{100 * read / total_in:6.1f}%" if total_in else "     —"
         print(
             f"{c:4} {m:20} {n:4d} {pct('cause_ok')} {pct('category_ok')} {pct('loc_ok')} "
-            f"{pct('fix_static_ok')} {calls:6.1f} {cost:8.4f}"
+            f"{pct('fix_static_ok')} {calls:6.1f} {cost:8.4f} {cached}"
         )
     by_cause: dict[tuple[str, str], list[bool]] = defaultdict(list)
     for r in results:
@@ -268,6 +300,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--max-tool-calls", type=int, default=cfg["max_tool_calls"])
     p.add_argument("--repeats", type=int, default=1)
     p.add_argument("--concurrency", type=int, default=cfg["concurrency"])
+    p.add_argument("--dev-sample-per-cause", type=int, default=cfg["dev_sample_per_cause"])
     p.add_argument("--limit", type=int)
     p.add_argument("--scenarios", nargs="*")
     p.add_argument("--hide-signals", nargs="*", choices=["gradients", "activations", "system", "data"])

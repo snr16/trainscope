@@ -145,11 +145,14 @@ async def diagnose(
             params: dict[str, Any] = dict(
                 model=model,
                 max_tokens=max_tokens,
-                system=SYSTEM,
+                # breakpoint 1: tools + system prompt are identical for every diagnosis, so this prefix is
+                # written once and then read from cache by every later run
+                system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
                 tools=[SUBMIT_TOOL] if budget_exhausted else tools,
                 messages=messages,
                 output_config={"effort": effort},
-                # every turn resends the whole conversation; caching makes the repeated prefix ~10x cheaper
+                # breakpoint 2 (automatic, moves to the last block): each tool-use turn resends the whole
+                # conversation, so everything up to the previous turn is a cache read
                 cache_control={"type": "ephemeral"},
             )
             if model in FALLBACK_MODELS:

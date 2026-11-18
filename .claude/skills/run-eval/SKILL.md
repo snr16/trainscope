@@ -13,7 +13,7 @@ Confirm with the user before any run over ~$5.
 
 - **Credentials:** `ANTHROPIC_API_KEY` in the environment or in `.env` at the repo root (gitignored). `eval/harness.py` loads it.
 - **Smoke test:** `python -m eval.harness --split dev --conditions A D --limit 3`.
-- **Main comparison (dev):** `python -m eval.harness --split dev --conditions A B C D E --tag dev-main`.
+- **Dev sanity check:** `python -m eval.harness --split dev --conditions A B C D E --tag dev-main`. On dev, A–D only run on `dev_sample_per_cause` runs per cause (config; ~17 runs); E scores all runs. Check the `cached` column is well above 0 after the first few diagnoses; if it isn't, caching is broken.
 - **Model:** set `models` in `eval/config.yaml` (list several to compare); `--models` overrides it for one run.
 - **Variance:** use `--repeats 3` on a subset (`--limit 20`). Current models don't accept `temperature`, so variance comes from repeats.
 - **Signal ablation:** run condition D with `--hide-signals gradients`, then `activations`, `system`, `data`, with one `--tag` per run.
