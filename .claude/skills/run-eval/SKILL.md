@@ -20,4 +20,4 @@ Confirm with the user before any run over ~$5.
 - **Fix verification:** `python -m eval.verify_fix results/eval/<tag>.jsonl --workers 4`. This reruns training for every proposed fix, so it uses CPU time, not API cost.
 - **Final numbers:** use `--split test` exactly once, with the settings frozen on dev.
 
-Results go to `results/eval/<tag>.jsonl` with every tool call logged. Summarize accuracy, localization, fix validity, verified-fix rate, tool calls, tokens and $/diagnosis per condition and model in `REPORT.md`.
+Results go to `results/eval/<tag>.jsonl` with every tool call logged. Summarize accuracy, localization, fix validity, verified-fix rate, tool calls, tokens and $/diagnosis per condition and model in the local `REPORT.md` (untracked; don't commit it).

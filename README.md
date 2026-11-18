@@ -125,7 +125,7 @@ There are three CPU-sized tasks with offline synthetic data:
 
 Failures are injected either as plausible config values or as hidden code bugs. Ground truth never reaches run names, configs or logs. Variants are split into dev and test by a stable hash.
 
-To add a scenario, see `.claude/skills/add-scenario/SKILL.md`. Methodology and results are in [REPORT.md](REPORT.md).
+To add a scenario, see `.claude/skills/add-scenario/SKILL.md`.
 
 ## Development
 

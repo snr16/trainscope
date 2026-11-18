@@ -16,4 +16,4 @@ All commands run from the repo root with `.venv/bin/python`.
 5. **Test set:** generate it only once tuning is finished:
    `python -m benchmark.run_scenarios --split test --workers 4`
    Never edit `benchmark/ground_truth/test.jsonl` by hand; a hook blocks it.
-6. Copy the headline numbers into `REPORT.md` and commit the results summary, not the DuckDB files.
+6. Put the headline numbers in the local `REPORT.md`. It is deliberately untracked, so never commit it, and never commit the DuckDB files either.
