@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser()
     p.add_argument("results", type=Path)
     p.add_argument("--workers", type=int, default=4)
+    p.add_argument("--conditions", nargs="*", help="only verify these conditions (default: all in the file)")
     p.add_argument("--max-steps", type=int)
     p.add_argument("--db", default=str(ROOT / "results" / "verify.duckdb"))
     a = p.parse_args(argv)
@@ -58,6 +59,11 @@ def main(argv: list[str] | None = None) -> None:
     from eval.harness import load_truth
 
     rows = [json.loads(line) for line in a.results.read_text().splitlines() if line.strip()]
+    rows = [
+        r for r in rows if not (r.get("transcript") or {}).get("error")
+    ]  # API failures have no fix to test
+    if a.conditions:
+        rows = [r for r in rows if r["condition"] in a.conditions]
     truths = {}
     for split in ("dev", "test"):
         try:
