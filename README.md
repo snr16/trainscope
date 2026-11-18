@@ -121,9 +121,33 @@ Resources: `trainscope://runs`, `trainscope://runs/{id}/summary`, `trainscope://
 | `lr_schedule` | logged LR vs. the configured schedule | missing warmup, scheduler stepped at the wrong rate, LR above config |
 | `suspicious_data` | label stats, padding ratio | label imbalance or shift, extreme or unmasked padding |
 
+### Tuning thresholds
+
+Each detector's thresholds have defaults tuned on the benchmark's dev runs. They are a starting point, not truth for every model, so you can override them in a `detectors.yaml`:
+
+```bash
+trainscope detectors > detectors.yaml          # every threshold, its default and what it means
+export TRAINSCOPE_DETECTORS=$PWD/detectors.yaml
+trainscope detectors --check detectors.yaml --project bert-finetune   # what a project ends up with
+```
+
+```yaml
+defaults:                         # all projects
+  dataloader_bottleneck: {wait_frac: 0.2}
+disabled: [amp_overflow]
+projects:
+  bert-finetune:                  # runs started with ts.init(project="bert-finetune")
+    plateau: {high_update: 0.005}
+    disabled: [suspicious_data]
+```
+
+- **Live reload:** the server re-reads the file when it changes.
+- **Strict names:** unknown detector or threshold names are rejected with a message listing the valid ones.
+- **Relative where the scale varies:** thresholds that would depend on the size of a model or machine are relative to the run itself. A memory leak is growth relative to the run's own starting memory and noise, not a fixed number of MB. Gradient blow-ups and loss rises are multiples of the run's own early values.
+
 To add a detector, see `.claude/skills/add-detector/SKILL.md`. In short:
-1. Create a module in `src/trainscope_server/detectors/`.
-2. Register it in `engine.py`.
+1. Create a module in `src/trainscope_server/detectors/`, with its thresholds in a `defaults` table.
+2. Register it in `DETECTOR_CLASSES` in `engine.py`.
 3. Add a test in `tests/test_detectors.py`.
 
 ## Benchmark and evaluation

@@ -15,3 +15,15 @@ concurrency: 4
 # On the dev split, LLM conditions (A-D) run on this many runs per failure cause (~17 runs at 1).
 # Dev is for tuning detectors (free); the full LLM comparison runs once on the test split. 0 = all dev runs.
 dev_sample_per_cause: 1
+
+# $ per 1M tokens, used only to report cost per diagnosis. Cache writes are billed at 1.25x input.
+# Prices change: check the current list before quoting these numbers. A model missing here is reported as $0.
+# Haiku 5.5 rates apply to prompts up to 100K tokens (ours are far below); its cache-read rate assumes 10% of input.
+prices:
+  claude-haiku-5-5: {input: 0.10, output: 0.50, cache_read: 0.01}
+  claude-sonnet-5-5: {input: 2.0, output: 10.0, cache_read: 0.10}
+  claude-opus-5-5: {input: 4.0, output: 20.0, cache_read: 0.20}
+  claude-fable-5-2: {input: 8.0, output: 40.0, cache_read: 0.20}
+
+# Models that accept the server-side refusal fallback; requests to them send `fallbacks: default`.
+fallback_models: [claude-opus-5-5, claude-opus-5, claude-sonnet-5-5, claude-fable-5-2, claude-fable-5-1]

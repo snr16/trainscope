@@ -14,22 +14,22 @@ from typing import Any
 
 from trainscope_server.taxonomy import CAUSES
 
-# $ per 1M tokens: (input, output, cache read). Cache writes cost 1.25x input. Haiku 5.5 rates apply to prompts
-# up to 100K tokens (ours are far below); its cache-read rate is assumed at the usual 10% of input.
-PRICES = {
-    "claude-opus-5-5": (4.0, 20.0, 0.20),
-    "claude-sonnet-5-5": (2.0, 10.0, 0.10),
-    "claude-haiku-5-5": (0.10, 0.50, 0.01),
-    "claude-fable-5-2": (8.0, 40.0, 0.20),
-}
-# models that accept the server-side refusal fallback (Haiku 5.5 has none)
-FALLBACK_MODELS = {
-    "claude-opus-5-5",
-    "claude-opus-5",
-    "claude-sonnet-5-5",
-    "claude-fable-5-2",
-    "claude-fable-5-1",
-}
+from .settings import load_config
+
+# $ per 1M tokens (input, output, cache read) and the models that take a refusal fallback: both come from
+# eval/config.yaml; harness.py calls configure() again when --config points at another file
+PRICES: dict[str, tuple[float, float, float]] = {}
+FALLBACK_MODELS: set[str] = set()
+
+
+def configure(cfg: dict[str, Any]) -> None:
+    PRICES.clear()
+    PRICES.update(cfg.get("prices") or {})
+    FALLBACK_MODELS.clear()
+    FALLBACK_MODELS.update(cfg.get("fallback_models") or set())
+
+
+configure(load_config())
 
 SYSTEM = (
     "You are an experienced ML engineer debugging a training run. Find the single most likely root cause. "

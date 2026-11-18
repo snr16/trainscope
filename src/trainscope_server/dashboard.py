@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from trainscope_mcp.summarize import lttb
 from trainscope_mcp.tools import TrainScopeTools
 
+from . import taxonomy
 from .db import Storage
 from .detectors.memory import memory_floor
 from .ingest.auth import check_project
@@ -105,6 +106,11 @@ class FindingsCache:
 def register(app: FastAPI, store: Storage, authz: Any, project_of: Callable[[str], str]) -> None:
     tools = TrainScopeTools(store, max_chars=200_000)
     cache = FindingsCache(tools)
+
+    @app.get("/v1/taxonomy")
+    def cause_taxonomy() -> dict[str, Any]:
+        """Failure causes with display labels, so clients don't keep their own copy."""
+        return {"causes": taxonomy.describe(), "categories": taxonomy.CATEGORIES}
 
     @app.get("/v1/overview")
     def overview(granted=authz) -> dict[str, Any]:

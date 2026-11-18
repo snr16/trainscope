@@ -28,6 +28,39 @@ CAUSES: dict[str, tuple[str, str]] = {
 
 CATEGORIES = sorted({c for c, _ in CAUSES.values()})
 
+# short names for lists and badges (the dashboard reads these from /v1/taxonomy)
+LABELS: dict[str, str] = {
+    "lr_too_high": "LR too high",
+    "missing_warmup": "missing warmup",
+    "scheduler_misstep": "scheduler stepped wrong",
+    "fp16_no_loss_scaling": "fp16 without loss scaling",
+    "nan_from_op": "NaN from an op",
+    "exploding_no_clip": "exploding grads, no clip",
+    "frozen_layers": "frozen layers",
+    "double_softmax": "double softmax",
+    "bad_init": "bad initialization",
+    "shuffled_labels": "shuffled labels",
+    "val_leakage": "val leakage",
+    "missing_normalization": "missing normalization",
+    "bad_padding_mask": "wrong padding mask",
+    "missing_zero_grad": "missing zero_grad",
+    "grad_accum_unscaled": "unscaled grad accumulation",
+    "eval_mode_training": "left in eval mode",
+    "overfitting": "overfitting",
+    "dataloader_bottleneck": "data-loader bottleneck",
+    "memory_leak": "memory leak",
+    "healthy": "healthy",
+}
+
+
+def describe() -> dict[str, dict[str, str]]:
+    """Every cause with its short label, category and description."""
+    return {
+        c: {"label": LABELS.get(c, c), "category": cat, "description": desc}
+        for c, (cat, desc) in CAUSES.items()
+    }
+
+
 FIX_TYPES = {
     "config_change": "Change a config field: {'type':'config_change','field':..., 'value':...}",
     "code_fix": "Apply a named code fix: {'type':'code_fix','name':<cause_id>}",

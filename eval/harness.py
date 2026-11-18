@@ -23,8 +23,10 @@ from typing import Any
 from trainscope_server.db import open_store
 from trainscope_server.detectors import RunData, run_detectors
 
+from . import llm_clients
 from .conditions import CONDITIONS, csv_context, logs_context
 from .grading import grade
+from .settings import CONFIG_PATH, load_config
 
 ROOT = Path(__file__).resolve().parent.parent
 GT_DIR = ROOT / "benchmark" / "ground_truth"
@@ -67,33 +69,12 @@ CANONICAL_LOCATION: dict[str, str] = {
 }
 
 
-CONFIG_PATH = Path(__file__).with_name("config.yaml")
-CONFIG_DEFAULTS: dict[str, Any] = {
-    "models": [],
-    "effort": "medium",
-    "max_tool_calls": 12,
-    "concurrency": 4,
-    "dev_sample_per_cause": 1,
-}
-
-
 def sample_per_cause(truths: list[dict[str, Any]], k: int) -> list[dict[str, Any]]:
     """Deterministic stratified sample: the first k runs (by run id) of every cause."""
     by_cause: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for t in sorted(truths, key=lambda t: t["run_id"]):
         by_cause[t["cause"]].append(t)
     return [t for runs in by_cause.values() for t in runs[:k]]
-
-
-def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
-    import yaml
-
-    cfg = dict(CONFIG_DEFAULTS)
-    if path.exists():
-        cfg.update(yaml.safe_load(path.read_text()) or {})
-    if isinstance(cfg["models"], str):
-        cfg["models"] = [cfg["models"]]
-    return cfg
 
 
 def load_env(path: Path = ROOT / ".env") -> None:
@@ -187,6 +168,9 @@ async def main_async(args: Any) -> None:
         import anthropic
 
         client = anthropic.AsyncAnthropic(max_retries=4)
+        unpriced = [m for m in args.models if m not in llm_clients.PRICES]
+        if unpriced:
+            print(f"note: no price for {', '.join(unpriced)} in the config; their cost is reported as $0")
     tag = args.tag or f"{args.split}-{'-'.join(args.conditions)}-{int(time.time())}"
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out_path = OUT_DIR / f"{tag}.jsonl"
@@ -303,6 +287,7 @@ def main(argv: list[str] | None = None) -> None:
     pre.add_argument("--config", default=str(CONFIG_PATH))
     known, _ = pre.parse_known_args(argv)
     cfg = load_config(Path(known.config))
+    llm_clients.configure(cfg)  # prices and fallback models from the chosen config
 
     p = argparse.ArgumentParser(parents=[pre])
     p.add_argument("--split", default="dev", choices=["dev", "test"])

@@ -94,3 +94,17 @@ def test_series_are_downsampled(tmp_path):
     c = TestClient(create_app(st))
     pts = c.get("/v1/runs/r/series", params={"names": "loss"}).json()["series"][0]["points"]
     assert len(pts) <= MAX_POINTS and pts[0][0] == 0 and pts[-1][0] == 4999
+
+
+def test_taxonomy_is_served_from_one_place(tmp_path):
+    from trainscope_server import taxonomy
+
+    assert set(taxonomy.LABELS) == set(taxonomy.CAUSES), "every cause needs a display label"
+    c = TestClient(create_app(open_store(str(tmp_path / "t.duckdb"))))
+    causes = c.get("/v1/taxonomy").json()["causes"]
+    assert causes["missing_zero_grad"] == {
+        "label": "missing zero_grad",
+        "category": "loop",
+        "description": "optimizer.zero_grad() never called",
+    }
+    assert set(causes) == set(taxonomy.CAUSES)

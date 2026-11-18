@@ -149,3 +149,28 @@ def test_fix_value_takes_leading_number_only():
         apply_fix(
             "vision", {}, [], {"type": "config_change", "field": "dropout", "value": "add more dropout"}
         )
+
+
+def test_prices_and_fallbacks_come_from_the_config(tmp_path):
+    import pytest
+
+    from eval import llm_clients
+    from eval.settings import SettingsError, load_config
+
+    cfg = load_config()  # the shipped eval/config.yaml
+    assert cfg["prices"]["claude-haiku-5-5"] == (0.10, 0.50, 0.01)
+    assert "claude-opus-5-5" in cfg["fallback_models"] and "claude-haiku-5-5" not in cfg["fallback_models"]
+
+    alt = tmp_path / "c.yaml"
+    alt.write_text("prices:\n  my-model: {input: 1.0, output: 2.0}\nfallback_models: [my-model]\n")
+    try:
+        llm_clients.configure(load_config(alt))
+        t = llm_clients.Transcript("my-model", input_tokens=1_000_000, output_tokens=1_000_000)
+        assert t.cost_usd == 3.0  # cache_read defaults to 10% of input; no cache tokens used here
+        assert llm_clients.FALLBACK_MODELS == {"my-model"}
+    finally:
+        llm_clients.configure(load_config())
+
+    alt.write_text("prices:\n  broken: {input: cheap}\n")
+    with pytest.raises(SettingsError, match="prices.broken"):
+        load_config(alt)

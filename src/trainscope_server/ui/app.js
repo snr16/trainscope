@@ -26,16 +26,9 @@
     if (s < 86400) return `${Math.round(s / 3600)} h ago`;
     return new Date(t * 1000).toLocaleDateString();
   };
-  const CAUSE_NAMES = {
-    lr_too_high: "LR too high", missing_warmup: "missing warmup", scheduler_misstep: "scheduler stepped wrong",
-    fp16_no_loss_scaling: "fp16 without loss scaling", nan_from_op: "NaN from an op", exploding_no_clip: "exploding grads, no clip",
-    frozen_layers: "frozen layers", double_softmax: "double softmax", bad_init: "bad initialization",
-    shuffled_labels: "shuffled labels", val_leakage: "val leakage", missing_normalization: "missing normalization",
-    bad_padding_mask: "wrong padding mask", missing_zero_grad: "missing zero_grad", grad_accum_unscaled: "unscaled grad accumulation",
-    eval_mode_training: "left in eval mode", overfitting: "overfitting", dataloader_bottleneck: "data-loader bottleneck",
-    memory_leak: "memory leak", healthy: "healthy",
-  };
-  const causeName = (c) => CAUSE_NAMES[c] || c;
+  // cause labels come from the server (/v1/taxonomy); until they arrive, or if that fails, show the cause id
+  const CAUSE_LABELS = {};
+  const causeName = (c) => CAUSE_LABELS[c] || c;
 
   let toastTimer;
   const toast = (msg) => {
@@ -671,5 +664,8 @@
     resizeTimer = setTimeout(() => { if (state.detail && state.selected) renderRun(state.selected); }, 200);
   });
 
-  loadRuns().then(route);
+  const loadTaxonomy = () => api("/v1/taxonomy")
+    .then((t) => { for (const [id, c] of Object.entries(t.causes)) CAUSE_LABELS[id] = c.label; })
+    .catch(() => { /* labels fall back to cause ids */ });
+  loadTaxonomy().then(loadRuns).then(route);
 })();
