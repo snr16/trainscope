@@ -194,7 +194,9 @@ async def main_async(args: Any) -> None:
     # LLM conditions cost money: on the dev split they only need a small sample to sanity-check the prompt and
     # tools (dev is for tuning detectors, which is free). The test split always runs in full.
     llm_truths = truths
-    if args.split == "dev" and args.dev_sample_per_cause > 0 and not args.limit:
+    if args.sample_per_cause:  # explicit, any split (e.g. a repeat subset for variance)
+        llm_truths = sample_per_cause(truths, args.sample_per_cause)
+    elif args.split == "dev" and args.dev_sample_per_cause > 0 and not args.limit:
         llm_truths = sample_per_cause(truths, args.dev_sample_per_cause)
     jobs = []
     for cond in args.conditions:
@@ -208,8 +210,8 @@ async def main_async(args: Any) -> None:
     print(f"{len(jobs)} diagnoses ({n_llm} LLM) -> {out_path}")
     if n_llm and llm_truths is not truths:
         print(
-            f"dev split: LLM conditions use {len(llm_truths)} of {len(truths)} runs "
-            f"({args.dev_sample_per_cause} per cause; set dev_sample_per_cause: 0 in the config for all)"
+            f"{args.split} split: LLM conditions use {len(llm_truths)} of {len(truths)} runs "
+            f"({args.sample_per_cause or args.dev_sample_per_cause} per cause)"
         )
 
     async def one(cond: str, model: str, rep: int, t: dict[str, Any]) -> dict[str, Any]:
@@ -311,6 +313,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--repeats", type=int, default=1)
     p.add_argument("--concurrency", type=int, default=cfg["concurrency"])
     p.add_argument("--dev-sample-per-cause", type=int, default=cfg["dev_sample_per_cause"])
+    p.add_argument("--sample-per-cause", type=int, help="LLM conditions use N runs per cause on any split")
     p.add_argument("--limit", type=int)
     p.add_argument("--scenarios", nargs="*")
     p.add_argument("--hide-signals", nargs="*", choices=["gradients", "activations", "system", "data"])
