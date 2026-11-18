@@ -87,7 +87,17 @@ class LRScheduleDetector(Detector):
             "lr_first": float(exp.iloc[0]),
             "lr_last": float(exp.iloc[-1]),
         }
-        if warmup and lr.iloc[0] > 0.5 * base:
+        d = np.sign(np.diff(lr.to_numpy()))
+        d = d[d != 0]
+        reversals = int((d[1:] != d[:-1]).sum()) if len(d) > 1 else 0
+        observed["direction_changes"] = reversals
+        if sched != "constant" and reversals >= 4:
+            reason = (
+                f"LR oscillates ({reversals} up/down reversals) instead of following one {sched} cycle; "
+                "scheduler period is far shorter than the run (e.g. T_max in epochs but stepped per batch)"
+            )
+            causes = ["scheduler_misstep"]
+        elif warmup and lr.iloc[0] > 0.5 * base:
             reason, causes = (
                 "no warmup: LR starts at its peak although warmup is configured",
                 ["missing_warmup"],

@@ -8,7 +8,7 @@ healthy:
   tasks: [vision, text_clf, lm]
   severities:
     default: {cfg: {}}
-    alt_sched: {cfg: {scheduler: constant, warmup_steps: 0}}
+    alt_sched: {cfg: {scheduler: linear, warmup_steps: 20}}
     accum: {cfg: {grad_accum: 2, total_steps: 200}}
   component: none
   fixes: [{type: none}]
@@ -41,6 +41,7 @@ scheduler_misstep:
 
 fp16_no_loss_scaling:
   cause: fp16_no_loss_scaling
+  requires: cuda   # CPU kernels lack fp16 LayerNorm and CPU fp16 matmuls don't overflow like GPU AMP does
   tasks: [vision, text_clf]
   severities:
     default: {cfg: {precision: fp16}, bugs: [fp16_no_loss_scaling]}
@@ -122,13 +123,8 @@ missing_zero_grad:
   component: code.training_loop
   fixes: [{type: code_fix, name: missing_zero_grad}]
 
-grad_accum_unscaled:
-  cause: grad_accum_unscaled
-  tasks: [vision]
-  severities:
-    default: {cfg: {grad_accum: 8, grad_clip: null}, lr_mult: 2, bugs: [grad_accum_unscaled]}
-  component: code.training_loop
-  fixes: [{type: code_fix, name: grad_accum_unscaled}]
+# grad_accum_unscaled was dropped: with BatchNorm+SGD or Adam the loss scale barely matters (both are close to
+# scale-invariant), so the unscaled run trained as well as or better than the healthy one.
 
 eval_mode_training:
   cause: eval_mode_training

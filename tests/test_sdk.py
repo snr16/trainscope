@@ -99,3 +99,22 @@ def test_grad_norm_is_measured_before_clipping():
     metrics, _ = w.collect(0)
     g = dict(((n, layer), v) for n, layer, v in metrics)[("grad/global_norm", "")]
     assert g > 1.0, "should report the pre-clip norm, not the clipped 0.01"
+
+
+def _carry(zero_grad: bool) -> float:
+    torch.manual_seed(0)
+    m = _model()
+    w = ModelWatcher(m, grad_every=1)
+    x, y = torch.randn(16, 8), torch.randint(0, 3, (16,))
+    for step in range(6):
+        if zero_grad:
+            m.zero_grad()
+        nn.functional.cross_entropy(m(x), y).backward()
+        metrics, _ = w.collect(step)
+        w.before_step(step)
+    return dict(((n, layer), v) for n, layer, v in metrics)[("grad/carryover_ratio", "")]
+
+
+def test_carryover_ratio_flags_missing_zero_grad():
+    assert abs(_carry(True) - 1.0) < 1e-3
+    assert _carry(False) > 4.0  # six un-zeroed backward passes stacked into .grad

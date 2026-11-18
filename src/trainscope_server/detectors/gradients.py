@@ -18,9 +18,14 @@ class ExplodingGradientDetector(Detector):
         out: list[Finding] = []
         if len(g) < 5:
             return out
-        base = float(g.iloc[: max(3, len(g) // 5)].median())
-        peak_step = int(g.idxmax())
-        peak = float(g.max())
+        win = max(3, len(g) // 5)
+        base = float(g.iloc[:win].median())
+        later = g.iloc[
+            win:
+        ]  # a blow-up is growth *after* the baseline window (large initial grads = bad init)
+        peak_step = int(later.idxmax()) if len(later) else int(g.idxmax())
+        peak = float(later.max()) if len(later) else float(g.max())
+        clip_off = not data.cfg("grad_clip", "max_grad_norm", default=None)
         layers = data.layers("grad/norm")
         top_layers = []
         if not layers.empty:
@@ -49,7 +54,9 @@ class ExplodingGradientDetector(Detector):
                         "top_layers": top_layers,
                         "trend_r": r,
                     },
-                    ["lr_too_high", "exploding_no_clip", "missing_zero_grad"],
+                    ["exploding_no_clip", "lr_too_high", "missing_zero_grad"]
+                    if clip_off
+                    else ["lr_too_high", "missing_zero_grad", "exploding_no_clip"],
                     0.7,
                 )
             )
@@ -69,7 +76,7 @@ class ExplodingGradientDetector(Detector):
                         "last": float(g.iloc[-1]),
                     },
                     ["missing_zero_grad", "grad_accum_unscaled"],
-                    0.7,
+                    0.85,
                 )
             )
         return out
@@ -78,7 +85,7 @@ class ExplodingGradientDetector(Detector):
 class VanishingGradientDetector(Detector):
     name = "vanishing_gradients"
 
-    def __init__(self, rel: float = 1e-4, dead_frac: float = 0.9):
+    def __init__(self, rel: float = 1e-4, dead_frac: float = 0.25):
         self.rel, self.dead_frac = rel, dead_frac
 
     def run(self, data: RunData) -> list[Finding]:
@@ -120,3 +127,38 @@ class VanishingGradientDetector(Detector):
                     )
                 )
         return out
+
+
+class GradCarryoverDetector(Detector):
+    """`.grad` holds much more than the latest backward pass contributed: gradients are not being zeroed."""
+
+    name = "grad_carryover"
+
+    def run(self, data: RunData) -> list[Finding]:
+        c = finite(data.scalar("grad/carryover_ratio"))
+        if len(c) < 4:
+            return []
+        accum = int(data.cfg("grad_accum", "gradient_accumulation_steps", default=1) or 1)
+        late = c.iloc[len(c) // 2 :]
+        med = float(late.median())
+        limit = 2.0 * accum + 1.0
+        if med <= limit:
+            return []
+        return [
+            Finding(
+                self.name,
+                "critical",
+                int(c.index[0]),
+                int(c.index[-1]),
+                f".grad is {med:.1f}x the gradient of the latest backward pass (expected <= {accum} with "
+                f"grad_accum={accum}); gradients carry over between optimizer steps",
+                {
+                    "median_carryover_ratio": med,
+                    "grad_accum": accum,
+                    "first": float(c.iloc[0]),
+                    "last": float(c.iloc[-1]),
+                },
+                ["missing_zero_grad", "grad_accum_unscaled"],
+                0.9,
+            )
+        ]

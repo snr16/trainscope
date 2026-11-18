@@ -42,6 +42,31 @@ CANONICAL_FIX: dict[str, dict[str, Any]] = {
 }
 
 
+# where each cause is usually fixed; detectors-only (E) uses this as its "location"
+CANONICAL_LOCATION: dict[str, str] = {
+    "lr_too_high": "config: lr (learning rate)",
+    "missing_warmup": "lr scheduler warmup",
+    "scheduler_misstep": "lr scheduler stepping (T_max / step frequency)",
+    "fp16_no_loss_scaling": "precision / loss scaling",
+    "nan_from_op": "model forward: division / normalization without eps",
+    "exploding_no_clip": "config: grad_clip",
+    "frozen_layers": "requires_grad on backbone layers",
+    "double_softmax": "model head: softmax before loss",
+    "bad_init": "weight init",
+    "shuffled_labels": "data labels",
+    "val_leakage": "train/validation split",
+    "missing_normalization": "input preprocessing / normalization",
+    "bad_padding_mask": "attention / padding mask",
+    "missing_zero_grad": "training loop: optimizer.zero_grad()",
+    "grad_accum_unscaled": "training loop: accumulation",
+    "eval_mode_training": "training loop: model.train() / eval mode",
+    "overfitting": "train_size / regularization",
+    "dataloader_bottleneck": "data loader workers / transforms",
+    "memory_leak": "training loop: history keeps graph (.item())",
+    "healthy": "",
+}
+
+
 def load_env(path: Path = ROOT / ".env") -> None:
     """Minimal .env loader (KEY=VALUE lines); never overrides variables already set."""
     if not path.exists():
@@ -79,10 +104,9 @@ def detectors_only(store: Any, run_id: str) -> dict[str, Any]:
         }
     top = fs[0]
     cause = (top.suspected_causes or ["healthy"])[0]
-    loc = json.dumps(top.evidence)[:300]
     return {
         "cause": cause,
-        "location": f"{top.detector}: {loc}",
+        "location": CANONICAL_LOCATION.get(cause, top.detector),
         "evidence": top.summary,
         "fix": CANONICAL_FIX.get(cause, {"type": "code_fix", "name": cause}),
         "confidence": "medium",

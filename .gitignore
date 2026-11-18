@@ -17,3 +17,4 @@ benchmark/data/
 .claude/settings.local.json
 .claude/.last-green-tests
 benchmark/ground_truth/
+results/eval/

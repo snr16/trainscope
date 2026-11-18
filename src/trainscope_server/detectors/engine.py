@@ -12,7 +12,7 @@ from .data import SuspiciousDataDetector
 from .dataloader import DataLoaderDetector
 from .divergence import DivergenceDetector
 from .frozen import FrozenLayerDetector, TrainModeDetector
-from .gradients import ExplodingGradientDetector, VanishingGradientDetector
+from .gradients import ExplodingGradientDetector, GradCarryoverDetector, VanishingGradientDetector
 from .lr_schedule import LRScheduleDetector
 from .memory import MemoryLeakDetector
 from .overfit import OverfittingDetector
@@ -26,6 +26,7 @@ DETECTORS: list[Detector] = [
     LossSpikeDetector(),
     PlateauDetector(),
     ExplodingGradientDetector(),
+    GradCarryoverDetector(),
     VanishingGradientDetector(),
     FrozenLayerDetector(),
     TrainModeDetector(),

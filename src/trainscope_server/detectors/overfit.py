@@ -49,23 +49,32 @@ class OverfittingDetector(Detector):
                     0.7,
                 )
             )
-        # eval consistently *better* than train by a wide margin -> possible leakage
+        # eval consistently *better* than train -> possible leakage of eval data into training
         tr_acc = finite(data.scalar("train/accuracy"))
         ev_acc = finite(data.scalar("eval/accuracy"))
-        if len(ev_acc) >= 3 and len(tr_acc) >= 3:
-            ea, ta = float(ev_acc.iloc[-3:].mean()), float(tr_acc.iloc[-3:].mean())
-            if ea > ta + 0.1 and ea > 0.9:
-                out.append(
-                    Finding(
-                        "eval_better_than_train",
-                        "warning",
-                        int(ev_acc.index[0]),
-                        int(ev_acc.index[-1]),
-                        f"eval accuracy ({ea:.1%}) is well above train accuracy ({ta:.1%}); check for validation "
-                        "leakage",
-                        {"eval_accuracy": ea, "train_accuracy": ta},
-                        ["val_leakage"],
-                        0.6,
-                    )
+        k = max(5, len(tr) // 20)
+        tr_tail = float(tr.iloc[-k:].mean())
+        ev_tail = float(ev.iloc[-2:].mean())
+        acc_gap = (
+            (float(ev_acc.iloc[-3:].mean()) - float(tr_acc.iloc[-3:].mean()))
+            if len(ev_acc) >= 3 and len(tr_acc) >= 3
+            else None
+        )
+        if (
+            ev_tail < 0.9 * tr_tail and acc_gap is not None and acc_gap > 0
+        ):  # LM-style runs: dropout alone does this
+            out.append(
+                Finding(
+                    "eval_better_than_train",
+                    "warning",
+                    int(ev.index[0]),
+                    int(ev.index[-1]),
+                    f"eval loss ({ev_tail:.3g}) is clearly below train loss ({tr_tail:.3g})"
+                    + (f" and eval accuracy is {acc_gap:+.1%} vs train" if acc_gap is not None else "")
+                    + "; the eval set may overlap the training data",
+                    {"eval_loss": ev_tail, "train_loss": tr_tail, "eval_minus_train_accuracy": acc_gap},
+                    ["val_leakage"],
+                    0.6,
                 )
+            )
         return out

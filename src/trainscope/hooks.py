@@ -45,6 +45,8 @@ class ModelWatcher:
         # gradient stats are captured right after backward (before clipping / unscaling / zero_grad)
         self._grad_on = True
         self._grad_stats: dict[str, tuple[torch.Tensor, torch.Tensor, int, torch.Tensor]] = {}
+        # squared norm of the gradient *arriving* in the latest backward (before it is added to .grad)
+        self._incoming: dict[str, torch.Tensor] = {}
         self._register_grad_hooks()
 
     # --------------------------------------------------------------- gradients
@@ -53,7 +55,15 @@ class ModelWatcher:
             return  # torch < 2.1: fall back to reading .grad at log time
         for n, p in self.model.named_parameters():
             if p.requires_grad:
+                self._handles.append(p.register_hook(self._make_incoming_hook(n)))
                 self._handles.append(p.register_post_accumulate_grad_hook(self._make_grad_hook(n)))
+
+    def _make_incoming_hook(self, name: str):
+        def hook(grad: torch.Tensor) -> None:
+            if self._grad_on:
+                self._incoming[name] = grad.detach().float().pow(2).sum()
+
+        return hook
 
     def _make_grad_hook(self, name: str):
         def hook(p: torch.Tensor) -> None:
@@ -110,6 +120,7 @@ class ModelWatcher:
         self._act_on = nxt % self.act_every == 0
         self._grad_on = nxt % self.grad_every == 0
         self._grad_stats = {}
+        self._incoming = {}
         if self.track_update_ratio and nxt % self.grad_every == 0:
             with torch.no_grad():
                 self._snapshot = {n: p.detach().clone() for n, p in self.model.named_parameters()}
@@ -169,10 +180,21 @@ class ModelWatcher:
                 )
                 layers.append(layer)
             self._snapshot = None
+            carry = None
+            shared = [n for n in self._incoming if n in self._grad_stats]
+            if shared:
+                acc = torch.stack([self._grad_stats[n][0] for n in shared]).sum()
+                inc = torch.stack([self._incoming[n] for n in shared]).sum()
+                carry = (acc / (inc + 1e-30)).sqrt()
             self._grad_stats = {}
+            self._incoming = {}
             if not rows:
                 return metrics, events
+            if carry is not None:
+                rows.append(torch.stack([carry.to(rows[0].device)] * 6))  # piggy-back on the same transfer
             table = torch.stack([r.to(rows[0].device) for r in rows]).cpu().tolist()  # one sync
+            if carry is not None:
+                metrics.append(("grad/carryover_ratio", "", table.pop()[0]))
         gsum = 0.0
         has_grad = False
         bad_layers = []

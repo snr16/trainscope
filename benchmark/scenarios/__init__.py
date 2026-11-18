@@ -53,6 +53,15 @@ def load_catalog(path: Path = CATALOG) -> dict[str, Any]:
     return cat
 
 
+def _has_cuda() -> bool:
+    try:
+        import torch
+
+        return torch.cuda.is_available()
+    except ImportError:
+        return False
+
+
 def _split_of(key: str) -> str:
     h = int(hashlib.sha256(f"{SALT}:split:{key}".encode()).hexdigest(), 16)
     return "test" if (h % 1000) / 1000 < TEST_FRACTION else "dev"
@@ -81,8 +90,11 @@ def expand(
 ) -> list[Variant]:
     cat = load_catalog()
     out = []
+    has_cuda = _has_cuda()
     for sid, sc in cat.items():
         if scenarios and sid not in scenarios:
+            continue
+        if sc.get("requires") == "cuda" and not has_cuda:
             continue
         for task in sc["tasks"]:
             if tasks and task not in tasks:
