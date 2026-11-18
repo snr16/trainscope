@@ -32,6 +32,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t trainscope:ci .
+      - name: Start the stack (TimescaleDB + ingest + MCP)
+        run: docker compose up -d --build --wait
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: End-to-end test against the stack
+        run: |
+          pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cpu
+          pip install "numpy<2" -e ".[server,mcp,dev]"
+          TRAINSCOPE_STACK=1 pytest -q tests/test_docker_stack.py
+      - if: failure()
+        run: docker compose logs
 
   mini-benchmark:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

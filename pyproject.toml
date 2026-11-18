@@ -30,6 +30,9 @@ trainscope = "trainscope_server.commands.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+trainscope_server = ["db/*.sql"]
+
 [tool.ruff]
 line-length = 110
 target-version = "py310"

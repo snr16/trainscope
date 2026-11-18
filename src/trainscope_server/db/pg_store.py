@@ -7,6 +7,7 @@ available, metrics becomes a hypertable with a 100-step continuous aggregate (se
 from __future__ import annotations
 
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from .rows import (
 )
 
 _HERE = Path(__file__).parent
+log = logging.getLogger("trainscope.db")
 
 
 class PostgresStore:
@@ -36,10 +38,17 @@ class PostgresStore:
         self.pool = ConnectionPool(url, min_size=1, max_size=8, kwargs={"autocommit": True})
         with self.pool.connection() as c:
             c.execute((_HERE / "schema.sql").read_text())
-            try:
-                c.execute((_HERE / "timescale.sql").read_text())
-            except psycopg.Error:
-                pass  # plain Postgres: still works, just without hypertables/aggregates
+            # TimescaleDB extras, one statement at a time; on plain Postgres they fail and the store still works,
+            # just without hypertables / downsampled aggregates
+            for stmt in (_HERE / "timescale.sql").read_text().split("-- @@"):
+                if not stmt.strip() or all(
+                    line.strip().startswith("--") for line in stmt.strip().splitlines()
+                ):
+                    continue
+                try:
+                    c.execute(stmt)
+                except psycopg.Error as e:
+                    log.warning("timescale setup step skipped: %s", str(e).splitlines()[0])
 
     def _q(self, sql: str, args: Any = (), fetch: str | None = None):
         with self.pool.connection() as c:

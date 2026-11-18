@@ -28,6 +28,9 @@ services:
       TRAINSCOPE_DB: postgresql://trainscope:trainscope@timescaledb:5432/trainscope
       TRAINSCOPE_MCP_TOKEN: ${TRAINSCOPE_MCP_TOKEN:-}
     ports: ["8766:8766"]
+    healthcheck:  # the image default probes the ingest port; the MCP server listens on 8766
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8766), 2)"]
+      interval: 10s
     depends_on:
       timescaledb: {condition: service_healthy}
 

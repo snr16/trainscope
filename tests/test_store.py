@@ -35,3 +35,11 @@ def test_runs_and_commands(store):
     assert store.list_commands("r1", "approved")[0]["id"] == c["id"]
     store.update_command(c["id"], status="executed", result={"path": "x"})
     assert store.get_command(c["id"])["result"] == {"path": "x"}
+
+
+def test_event_dedup_key_stays_small_for_big_payloads():
+    from trainscope_server.db.rows import event_key
+
+    big = {"run_id": "r", "step": 0, "type": "dataset_ids", "payload": {"ids": [f"id{i}" for i in range(5000)]}}
+    assert len(event_key(big)) < 64
+    assert event_key(big) == event_key(dict(big)) and event_key(big) != event_key({**big, "step": 1})

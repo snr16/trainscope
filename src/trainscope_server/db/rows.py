@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import uuid
@@ -63,7 +64,11 @@ def command_out(row: tuple) -> dict[str, Any]:
 
 
 def event_key(e: dict[str, Any]) -> str:
-    return e.get("dedup_key") or f"{e['type']}:{e['step']}:{json.dumps(e.get('payload', {}), sort_keys=True)}"
+    if e.get("dedup_key"):
+        return e["dedup_key"]
+    # hash the payload: some events (e.g. dataset_ids) carry thousands of ids, and Postgres caps index rows at 8 KB
+    digest = hashlib.sha1(json.dumps(e.get("payload", {}), sort_keys=True).encode()).hexdigest()[:16]
+    return f"{e['type']}:{e['step']}:{digest}"
 
 
 def new_command(cmd: dict[str, Any]) -> tuple:
