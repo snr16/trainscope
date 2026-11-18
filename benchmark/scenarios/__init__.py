@@ -16,6 +16,11 @@ from ..tasks.trainer import DEFAULTS
 CATALOG = Path(__file__).with_name("catalog.yaml")
 SALT = "trainscope-bench-v1"
 TEST_FRACTION = 0.4
+SEEDS = [0, 1, 2, 3]
+# Seeds 0-2 are split dev/test by hash. That left some causes with no test runs at all, and the dev runs had
+# already been used for tuning, so instead of reshuffling, every variant gets one fresh seed that only ever
+# goes to the test split: each cause is then tested on runs nobody has looked at.
+TEST_ONLY_SEEDS = {3}
 
 
 @dataclass
@@ -62,7 +67,9 @@ def _has_cuda() -> bool:
         return False
 
 
-def _split_of(key: str) -> str:
+def _split_of(key: str, seed: int) -> str:
+    if seed in TEST_ONLY_SEEDS:
+        return "test"
     h = int(hashlib.sha256(f"{SALT}:split:{key}".encode()).hexdigest(), 16)
     return "test" if (h % 1000) / 1000 < TEST_FRACTION else "dev"
 
@@ -100,7 +107,7 @@ def expand(
             if tasks and task not in tasks:
                 continue
             for sev, spec in sc["severities"].items():
-                for seed in seeds or [0, 1, 2]:
+                for seed in seeds or SEEDS:
                     v = Variant(
                         sid,
                         sc["cause"],
@@ -114,7 +121,7 @@ def expand(
                         sc["fixes"],
                     )
                     v.run_id = _run_id(v.key)
-                    v.split = _split_of(v.key)
+                    v.split = _split_of(v.key, v.seed)
                     if split is None or v.split == split:
                         out.append(v)
     return out

@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> None:
 
     p = argparse.ArgumentParser()
     p.add_argument("--split", choices=["dev", "test"], default="dev")
-    p.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
+    p.add_argument("--seeds", type=int, nargs="+", help="default: all (0-2 hash-split, 3 test-only)")
     p.add_argument("--scenarios", nargs="*")
     p.add_argument("--tasks", nargs="*")
     p.add_argument("--limit", type=int)
