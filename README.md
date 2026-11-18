@@ -21,8 +21,10 @@ training process ──(SDK: buffered, background flush, disk spool)──▶ in
 ## Quickstart
 
 ```bash
-pip install -e ".[server,mcp,torch]"
+pip install "trainscope-mcp[server,mcp,torch]"   # or, from a clone: pip install -e ".[server,mcp,torch]"
 ```
+
+The package is `trainscope-mcp` on PyPI; in Python it is imported as `trainscope`.
 
 ```python
 import trainscope as ts
@@ -75,6 +77,7 @@ The server implements MCP protocol `2026-07-28` (official Python SDK v2, `MCPSer
 **Claude Code:**
 ```bash
 claude mcp add trainscope -- /path/to/.venv/bin/trainscope-mcp --db /path/to/trainscope.duckdb
+# or without a virtualenv, using uv: claude mcp add trainscope -- uvx --from "trainscope-mcp[mcp]" trainscope-mcp --db /path/to/trainscope.duckdb
 ```
 
 **Claude Desktop / Cursor** (`claude_desktop_config.json` / `.cursor/mcp.json`):

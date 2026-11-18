@@ -1,15 +1,34 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "trainscope"
+name = "trainscope-mcp"
 version = "0.1.0"
 description = "AI training-run debugger: telemetry SDK, detectors, and an MCP server"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Niranjan" }]
+keywords = ["pytorch", "training", "debugging", "mcp", "model-context-protocol", "telemetry", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Debuggers",
+]
 dependencies = ["numpy>=1.24", "httpx>=0.27", "psutil>=5.9"]
+
+[project.urls]
+Homepage = "https://github.com/snr16/trainscope"
+Repository = "https://github.com/snr16/trainscope"
+Issues = "https://github.com/snr16/trainscope/issues"
 
 [project.optional-dependencies]
 torch = ["torch>=2.1"]
