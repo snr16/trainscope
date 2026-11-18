@@ -37,10 +37,26 @@
   </aside>
 
   <main class="main" id="main">
-    <div class="empty" id="welcome">
-      <h1>Pick a run</h1>
-      <p>Runs appear on the left as soon as a training script calls <code>ts.init()</code>. Runs with detector findings carry a red or amber badge.</p>
-      <div class="welcome-stats" id="welcome-stats"></div>
+    <div class="home" id="welcome">
+      <div class="strip" id="home-strip" role="status"></div>
+      <section class="band">
+        <h2 class="band-title">Needs you</h2>
+        <div class="cards" id="home-needs"></div>
+      </section>
+      <section class="band">
+        <h2 class="band-title">Live runs</h2>
+        <div class="live-list" id="home-live"></div>
+      </section>
+      <div class="band-pair">
+        <section class="band">
+          <h2 class="band-title">What's going wrong <span class="band-note">all runs · click a cause to list its runs</span></h2>
+          <div class="cause-bars" id="home-causes"></div>
+        </section>
+        <section class="band">
+          <h2 class="band-title">Recently ended</h2>
+          <div class="ended-list" id="home-ended"></div>
+        </section>
+      </div>
     </div>
     <div id="run-view" hidden></div>
   </main>

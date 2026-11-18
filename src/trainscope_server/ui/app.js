@@ -83,7 +83,7 @@
       setConn(`${o.runs.length} runs · updated ${new Date().toLocaleTimeString()}` +
         (o.pending_findings ? ` · checking ${o.pending_findings} for issues…` : ""));
       renderRunList();
-      renderWelcome();
+      renderHome(o.pending_approvals || []);
       // come back sooner while findings are still being computed
       clearTimeout(state.listTimer);
       state.listTimer = setTimeout(loadRuns, o.pending_findings ? 3000 : 10000);
@@ -132,14 +132,120 @@
     }).join("") || `<li class="no-data" style="padding:12px">No runs match.</li>`;
   }
 
-  function renderWelcome() {
-    const n = state.runs.length;
-    const live = state.runs.filter((r) => ["running", "paused"].includes(r.status)).length;
-    const crit = state.runs.filter((r) => r.findings && r.findings.critical).length;
-    const warn = state.runs.filter((r) => r.findings && !r.findings.critical && r.findings.warning).length;
-    $("#welcome-stats").innerHTML = [
-      [n, "runs"], [live, "live now"], [crit, "with critical issues"], [warn, "with warnings"],
-    ].map(([v, k]) => `<div class="stat"><b>${v}</b><span>${k}</span></div>`).join("");
+  // ------------------------------------------------------------------ home
+  const isLive = (r) => ["running", "paused"].includes(r.status);
+  const hasIssue = (r) => r.findings && (r.findings.critical || r.findings.warning);
+  const seenAlerts = new Set();
+  let homeRendered = false;
+
+  /* Tiny loss curve: shape at a glance, endpoint emphasized. */
+  function spark(points, bad) {
+    if (!points || points.length < 2) return `<svg class="spark" viewBox="0 0 100 26" aria-hidden="true"></svg>`;
+    const xs = points.map((p) => p[0]), ys = points.map((p) => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const X = (v) => 2 + ((v - x0) / Math.max(1, x1 - x0)) * 94, Y = (v) => 23 - ((v - y0) / Math.max(1e-12, y1 - y0)) * 20;
+    const pts = points.map((p) => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" ");
+    const last = points[points.length - 1];
+    return `<svg class="spark${bad ? " bad" : ""}" viewBox="0 0 100 26" aria-label="loss ${num(ys[0])} to ${num(last[1])}" role="img">
+      <polyline points="${pts}"/><circle cx="${X(last[0]).toFixed(1)}" cy="${Y(last[1]).toFixed(1)}" r="2.4"/></svg>`;
+  }
+
+  function renderHome(approvals) {
+    const runs = state.runs;
+    const live = runs.filter(isLive);
+    const liveIssues = live.filter(hasIssue);
+    const liveCrit = live.filter((r) => r.findings && r.findings.critical);
+    const crit = runs.filter((r) => r.findings && r.findings.critical).length;
+    const warn = runs.filter((r) => r.findings && !r.findings.critical && r.findings.warning).length;
+    const ended = runs.filter((r) => !isLive(r)).sort((a, b) => (b.ended_at || b.started_at || 0) - (a.ended_at || a.started_at || 0));
+    const lastIssue = runs.filter(hasIssue).map((r) => r.ended_at || r.started_at || 0).sort((a, b) => b - a)[0];
+
+    // 1. status strip: one sentence that answers "is anything wrong?"
+    let tone, head, sub;
+    const parts = [];
+    if (liveIssues.length) parts.push(`${liveIssues.length} live run${liveIssues.length > 1 ? "s need" : " needs"} attention`);
+    if (approvals.length) parts.push(`${approvals.length} request${approvals.length > 1 ? "s are" : " is"} waiting for your approval`);
+    if (parts.length) {
+      tone = liveCrit.length ? "bad" : "warn";
+      head = parts.join(" · ");
+      sub = "Review them below. Commands take effect at the run's next step.";
+    } else if (live.length) {
+      tone = "good";
+      head = `All ${live.length} live run${live.length > 1 ? "s look" : " looks"} healthy`;
+      sub = lastIssue ? `last issue seen on a finished run ${ago(lastIssue)}` : "no detector has fired yet";
+    } else {
+      tone = "idle";
+      head = "No runs are training right now";
+      sub = `${runs.length} finished run${runs.length === 1 ? "" : "s"} recorded · new runs appear here as soon as a script calls ts.init()`;
+    }
+    $("#home-strip").className = "strip " + tone;
+    $("#home-strip").innerHTML = `<span class="light"></span><div class="msg"><b>${esc(head)}</b><span>${esc(sub)}</span></div>
+      <div class="totals"><div><b>${live.length}</b><span>live</span></div><div><b>${runs.length}</b><span>runs</span></div>
+      <div><b>${crit}</b><span>critical</span></div><div><b>${warn}</b><span>warning</span></div></div>`;
+
+    // 2. needs you: approvals first, then live runs with findings (critical first)
+    const issueCards = liveIssues.sort((a, b) => (b.findings.critical - a.findings.critical) || (b.findings.warning - a.findings.warning));
+    const cards = approvals.map((c) => `<div class="card approval">
+        <div class="ct"><span class="kind">Approval needed</span><span class="cf">${esc(ago(c.created_at))}</span></div>
+        <b>${esc(c.action === "set_lr" ? `Set LR to ${num(c.args && c.args.lr, 4)}` : c.action[0].toUpperCase() + c.action.slice(1))} · ${esc(c.run_name)}</b>
+        <div class="cs">requested by ${esc(c.requested_by || "unknown")}</div>
+        <div class="cmd-btns"><button class="approve" data-approve="${esc(c.id)}">Approve</button><button class="reject" data-reject="${esc(c.id)}">Reject</button>
+          <button class="reject" data-open="${esc(c.run_id)}">Open run</button></div></div>`)
+      .concat(issueCards.map((r) => {
+        const sev = r.findings.critical ? "critical" : "warning";
+        const key = `${r.id}|${r.findings.top}`;
+        const fresh = homeRendered && !seenAlerts.has(key);
+        seenAlerts.add(key);
+        return `<div class="card link ${sev}${fresh ? " fresh" : ""}" data-open="${esc(r.id)}" tabindex="0" role="button">
+          <div class="ct"><b>${esc(r.name)}</b><span class="sev ${sev}">${sev}</span></div>
+          <div class="cs">${esc(r.findings.top || "")}</div>
+          <div class="cf"><span>${r.findings.cause ? "likely " + esc(causeName(r.findings.cause)) + " · " : ""}step ${r.last_step}</span>${spark(r.spark, true)}</div></div>`;
+      }));
+    $("#home-needs").innerHTML = cards.join("") ||
+      `<div class="calm"><b>✓</b> Nothing needs you right now${live.length ? ": no findings on live runs and no pending requests." : "."}</div>`;
+
+    // 3. live runs
+    $("#home-live").innerHTML = live.length ? live.map((r) => {
+      const frac = r.total_steps ? Math.min(1, (r.last_step + 1) / r.total_steps) : null;
+      return `<div class="live-row" data-open="${esc(r.id)}" tabindex="0" role="button">
+        <span class="dot ${esc(r.status)}"></span>
+        <span class="nm">${esc(r.name)}<small>${esc(r.project)} · ${r.status === "paused" ? "paused at" : "step"} ${r.last_step}${r.total_steps ? " / " + r.total_steps : ""}</small></span>
+        <span class="pbar" title="${frac !== null ? Math.round(frac * 100) + "%" : ""}"><i style="width:${frac !== null ? (frac * 100).toFixed(1) : 0}%"></i></span>
+        <span class="lv">${num(r.last_loss)}</span>${spark(r.spark, hasIssue(r))}${badgeFor(r)}</div>`;
+    }).join("") : `<div class="calm" style="border:0">No live runs. Start a training script with <code>ts.init()</code> and it shows up here within seconds.</div>`;
+
+    // 4. what's going wrong: likely cause of each run's top finding, ranked
+    const counts = {};
+    for (const r of runs) if (hasIssue(r) && r.findings.cause) counts[r.findings.cause] = (counts[r.findings.cause] || 0) + 1;
+    const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    const maxC = ranked.length ? ranked[0][1] : 1;
+    const clean = runs.filter((r) => r.findings && !hasIssue(r)).length;
+    const pendingN = runs.filter((r) => !r.findings && r.last_step >= 0).length;
+    $("#home-causes").innerHTML = ranked.length ? ranked.slice(0, 10).map(([c, n]) => `
+      <button class="cause-row" data-cause="${esc(c)}" title="Show the ${n} run${n > 1 ? "s" : ""} whose top finding points to ${esc(causeName(c))}">
+        <span class="cn">${esc(causeName(c))}</span><span class="cb"><i style="width:${(n / maxC * 100).toFixed(1)}%"></i></span><span class="cc">${n}</span></button>`).join("") +
+      `<div class="cause-foot">${clean} run${clean === 1 ? "" : "s"} with no findings${ranked.length > 10 ? ` · ${ranked.length - 10} more causes in the run list` : ""}${pendingN ? ` · still checking ${pendingN}` : ""}</div>`
+      : `<div class="cause-foot">${pendingN ? `Checking ${pendingN} runs for issues…` : "No detector findings on any run."}</div>`;
+
+    // 5. recently ended
+    $("#home-ended").innerHTML = ended.slice(0, 8).map((r) => {
+      const ok = r.status === "finished";
+      return `<div class="ended-row" data-open="${esc(r.id)}" tabindex="0" role="button">
+        <span class="outcome ${ok ? "ok" : "bad"}" title="${esc(r.status)}">${ok ? "✓" : "✗"}</span>
+        <span class="nm">${esc(r.name)}<small>${esc(r.status)} ${esc(ago(r.ended_at || r.started_at))} · ${r.last_step + 1} steps${r.findings && r.findings.cause && hasIssue(r) ? " · " + esc(causeName(r.findings.cause)) : ""}</small></span>
+        ${spark(r.spark, hasIssue(r))}${badgeFor(r)}</div>`;
+    }).join("") || `<div class="calm" style="border:0">No finished runs yet.</div>`;
+    homeRendered = true;
+  }
+
+  function filterByCause(cause) {
+    state.query = cause;
+    $("#search").value = cause;
+    state.filter = "all";
+    document.querySelectorAll(".filters .chip").forEach((x) => x.classList.toggle("on", x.dataset.filter === "all"));
+    renderRunList();
+    $("#sidebar").classList.add("open");
+    toast(`Showing runs whose top finding points to ${causeName(cause)}.`);
   }
 
   // ------------------------------------------------------------------ charts
@@ -485,7 +591,8 @@
     try {
       await api(`/v1/commands/${cmdId}/approve`, { method: "POST", body: JSON.stringify({ approved_by: "human:" + name, approve }) });
       toast(approve ? "Approved. The run applies it at the next step." : "Rejected.");
-      openRun(state.selected, { quiet: true });
+      if (state.selected) openRun(state.selected, { quiet: true });
+      else loadRuns();
     } catch (e) { toast(`Couldn't ${approve ? "approve" : "reject"}: ${e.message}`); }
   }
 
@@ -533,6 +640,18 @@
     }
     if (ap) decide(ap.dataset.approve, true);
     if (rj) decide(rj.dataset.reject, false);
+  });
+  const homeClick = (e) => {
+    const ap = e.target.closest("[data-approve]"), rj = e.target.closest("[data-reject]");
+    const cause = e.target.closest("[data-cause]"), open = e.target.closest("[data-open]");
+    if (ap) return decide(ap.dataset.approve, true);
+    if (rj) return decide(rj.dataset.reject, false);
+    if (cause) return filterByCause(cause.dataset.cause);
+    if (open) location.hash = "run=" + open.dataset.open;
+  };
+  $("#welcome").addEventListener("click", homeClick);
+  $("#welcome").addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-open][role=button]")) { e.preventDefault(); homeClick(e); }
   });
   $("#lr-dialog").addEventListener("close", () => {
     if ($("#lr-dialog").returnValue !== "ok") return;

@@ -57,6 +57,16 @@ def test_dashboard_endpoints(tmp_path):
             break
         time.sleep(0.1)
     assert run["findings"]["critical"] >= 1  # the NaN loss
+    # the home page's sparkline (recently ended runs) skips the NaN step
+    assert 2 <= len(run["spark"]) <= 40 and all(p[0] != 40 for p in run["spark"])
+
+    # requests waiting for a person show up across runs, with the run's name
+    store = c.app.state.store
+    cmd = store.create_command(
+        {"run_id": rid, "action": "pause", "requested_by": "assistant:mcp", "status": "pending_approval"}
+    )
+    approvals = c.get("/v1/overview").json()["pending_approvals"]
+    assert [(a["id"], a["run_name"]) for a in approvals] == [(cmd["id"], run["name"])]
 
     s = c.get(f"/v1/runs/{rid}/series", params={"names": "loss,lr,missing"}).json()["series"]
     loss = s[0]

@@ -27,6 +27,7 @@ from .ingest.auth import check_project
 
 UI_DIR = Path(__file__).with_name("ui")
 MAX_POINTS = 400
+SPARK_POINTS = 40
 
 
 def _clean(v: float) -> float | str:
@@ -130,7 +131,27 @@ def register(app: FastAPI, store: Storage, authz: Any, project_of: Callable[[str
                     "findings": badge,
                 }
             )
-        return {"runs": runs, "pending_findings": pending, "generated_at": time.time()}
+        # small loss sparklines for the runs the home page shows: live ones and the most recently ended
+        live = [r for r in runs if r["status"] in ("running", "paused")]
+        ended = sorted(
+            (r for r in runs if r["status"] not in ("running", "paused")),
+            key=lambda r: r["ended_at"] or r["started_at"] or 0,
+            reverse=True,
+        )[:8]
+        for r in live + ended:
+            r["spark"] = series_points(store, r["id"], "loss", max_points=SPARK_POINTS)["points"]
+        names = {r["id"]: r["name"] for r in runs}
+        approvals = [
+            {**c, "run_name": names[c["run_id"]]}
+            for c in store.list_commands(status="pending_approval")
+            if c["run_id"] in names  # also enforces the token's project scope
+        ]
+        return {
+            "runs": runs,
+            "pending_findings": pending,
+            "pending_approvals": approvals,
+            "generated_at": time.time(),
+        }
 
     def guard(run_id: str, granted: str | None) -> None:
         check_project(granted, project_of(run_id))
