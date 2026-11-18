@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 from ..tasks.trainer import DEFAULTS, Result
@@ -50,6 +51,20 @@ class FixError(ValueError):
     pass
 
 
+_NUM = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
+
+
+def leading_number(value: Any) -> float:
+    """'5e-4 (and/or add dropout)' -> 5e-4. Models often explain the value inline; the first number is the
+    proposal. Raises if the value doesn't *start* with a number (no guessing from the middle of prose)."""
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return float(value)
+    m = _NUM.match(str(value).strip())
+    if not m:
+        raise FixError(f"needs a number, got {str(value)[:40]!r}")
+    return float(m.group(0))
+
+
 def apply_fix(
     task: str, cfg: dict[str, Any], bugs: list[str], fix: dict[str, Any]
 ) -> tuple[dict[str, Any], list[str]]:
@@ -74,9 +89,9 @@ def apply_fix(
                 cfg[fld] = None
                 return cfg, bugs
             try:
-                v = float(val)
-            except (TypeError, ValueError) as e:
-                raise FixError(f"{fld} needs a number") from e
+                v = leading_number(val)
+            except FixError as e:
+                raise FixError(f"{fld} {e}") from e
             lo, hi = FIELD_BOUNDS[fld]
             if not lo <= v <= hi:
                 raise FixError(f"{fld}={v} out of bounds [{lo}, {hi}]")

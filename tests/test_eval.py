@@ -131,3 +131,15 @@ def test_tools_never_change_mid_conversation():
     tr = asyncio.run(diagnose(client, "claude-haiku-5-5", "x", FakeSession()))
     assert tr.diagnosis["cause"] == "healthy"
     assert len({str(c["tools"]) for c in client.calls}) == 1
+
+
+def test_fix_value_takes_leading_number_only():
+    import pytest
+
+    from benchmark.fixes.apply import FixError, apply_fix
+
+    cfg, _ = apply_fix("vision", {"lr": 1.0}, [], {"type": "config_change", "field": "lr",
+                                                    "value": "1e-3 (or 3e-4); 0.04 is too high"})
+    assert cfg["lr"] == 1e-3
+    with pytest.raises(FixError):  # prose without a leading number is not guessed at
+        apply_fix("vision", {}, [], {"type": "config_change", "field": "dropout", "value": "add more dropout"})

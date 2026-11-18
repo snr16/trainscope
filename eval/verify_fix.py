@@ -53,6 +53,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--conditions", nargs="*", help="only verify these conditions (default: all in the file)")
     p.add_argument("--max-steps", type=int)
+    p.add_argument("--fresh", action="store_true", help="ignore earlier verdicts and retrain everything")
     p.add_argument("--db", default=str(ROOT / "results" / "verify.duckdb"))
     a = p.parse_args(argv)
 
@@ -84,21 +85,34 @@ def main(argv: list[str] | None = None) -> None:
         }
         jobs.append({"key": key, "truth": t, "fix": d.get("fix")})
     out_path = a.results.with_suffix(".verify.jsonl")
+    # reuse earlier verdicts for identical (run, fix) pairs; only re-check ones the verifier itself rejected
+    # (invalid format), since those are the ones a verifier change can affect
+    previous: dict[str, dict[str, Any]] = {}
+    if out_path.exists() and not a.fresh:
+        for line in out_path.read_text().splitlines():
+            r = json.loads(line)
+            if not str(r.get("reason", "")).startswith("invalid fix"):
+                previous[json.dumps([r["condition"], r["model"], r["repeat"], r["run_id"]])] = r
     results = []
     with ProcessPoolExecutor(a.workers) as ex, open(out_path, "w") as f:
         # identical (run, fix) pairs are rerun once
         futs = {}
         for j in jobs:
             sig = json.dumps([j["truth"]["run_id"], j["fix"]], sort_keys=True)
-            if sig not in cache:
+            k = j["key"]
+            prev = previous.get(json.dumps([k["condition"], k["model"], k["repeat"], k["run_id"]]))
+            if prev is not None and sig not in cache:
+                cache[sig] = prev
+            elif sig not in cache:
                 cache[sig] = {}
                 futs[ex.submit(_verify_one, j, a.db, a.max_steps)] = sig
-        done: dict[str, dict[str, Any]] = {}
+        done: dict[str, dict[str, Any]] = {s: v for s, v in cache.items() if v}
+        print(f"re-verifying {len(futs)} fix(es); reusing {len(done)} earlier verdict(s)", flush=True)
         for fut in as_completed(futs):
             done[futs[fut]] = fut.result()
         for j in jobs:
             sig = json.dumps([j["truth"]["run_id"], j["fix"]], sort_keys=True)
-            r = {**done[sig], **j["key"]}
+            r = {**done[sig], **j["key"], "fix": j["fix"]}
             results.append(r)
             f.write(json.dumps(r, default=str) + "\n")
     agg: dict[tuple[str, str], list[bool]] = defaultdict(list)
