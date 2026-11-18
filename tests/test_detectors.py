@@ -125,6 +125,21 @@ def test_dataloader_bottleneck():
     assert f and f[0].severity == "critical"
 
 
+def test_memory_leak_thresholds_scale_with_the_run():
+    """Thresholds are relative to the run's own memory, so the same detector works on a laptop and a big GPU."""
+    rng = np.random.default_rng(0)
+    for start in (500.0, 50_000.0):  # same 80% leak at two very different scales
+        s = np.linspace(start, start * 1.8, 60) + rng.normal(0, start * 0.002, 60)
+        assert MemoryLeakDetector().run(data({"sys/cuda_alloc_mb": s})), (
+            f"missed a leak starting at {start} MB"
+        )
+    # +200 MB on a 70 GB process is 0.3%: not a leak (a fixed 100 MB bar would have flagged it)
+    big = np.linspace(70_000, 70_200, 60)
+    assert MemoryLeakDetector().run(data({"sys/cuda_alloc_mb": big})) == []
+    # too few samples to judge (start-up allocation dominates short runs)
+    assert MemoryLeakDetector().run(data({"sys/proc_rss_mb": np.linspace(500, 900, 20)})) == []
+
+
 def test_memory_leak():
     f = MemoryLeakDetector().run(data({"sys/proc_rss_mb": np.linspace(500, 900, 50)}))
     assert f and f[0].evidence["series"] == "sys/proc_rss_mb"
