@@ -7,6 +7,16 @@ from .base import Detector, Finding, RunData, finite, trend
 _SERIES = ["sys/cuda_alloc_mb", "sys/mps_alloc_mb", "sys/gpu_mem_mb", "sys/proc_rss_mb", "mem/tracked_mb"]
 
 
+def memory_floor(s):
+    """Rolling-minimum floor of a memory series after warm-up: (floor series, start, end, trend r)."""
+    s = s.iloc[len(s) // 10 :]
+    w = max(5, len(s) // 8)
+    floor = s.rolling(w).min().dropna()
+    if len(floor) < 4:
+        return None
+    return floor, float(floor.iloc[0]), float(floor.iloc[-1]), trend(floor)[1]
+
+
 class MemoryLeakDetector(Detector):
     """Steady growth of memory. Allocator stats (CUDA/MPS) are exact; process RSS is noisy (other processes,
     page compression), so for RSS we follow its *floor* (rolling minimum), which only rises if memory leaks."""
@@ -35,7 +45,7 @@ class MemoryLeakDetector(Detector):
                 return [
                     Finding(
                         self.name,
-                        "critical" if growth > start else "warning",
+                        "critical" if growth > 0.4 * start else "warning",
                         int(floor.index[0]),
                         int(floor.index[-1]),
                         f"{name} floor grew steadily by {growth:.0f} MB ({start:.0f} -> {end:.0f}, r={r:.2f}, "

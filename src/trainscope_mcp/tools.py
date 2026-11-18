@@ -12,6 +12,7 @@ import pandas as pd
 from trainscope_server.commands import policy
 from trainscope_server.db import Storage
 from trainscope_server.detectors import RunData, run_detectors
+from trainscope_server.detectors.memory import memory_floor
 
 from .summarize import _r, cap, layer_table, series_summary
 
@@ -259,7 +260,26 @@ class TrainScopeTools:
             parts.append(f"step time median {out['step_time']['median']}s")
         for m in ("sys/cuda_alloc_mb", "sys/gpu_mem_mb", "sys/proc_rss_mb", "mem/tracked_mb"):
             if m in out:
-                parts.append(f"{m} {out[m]['first']} -> {out[m]['last']} MB ({out[m]['trend']})")
+                # raw RSS is spiky; its floor (rolling minimum) only rises when memory is really retained
+                s = self._series(run_id, m, step_min=lo)
+                fl = memory_floor(s[np.isfinite(s.to_numpy(dtype=float))])
+                if fl is not None:
+                    _, f0, f1, r = fl
+                    rising = f1 - f0 > 0.2 * max(f0, 1.0) and r > 0.5
+                    out[m].update(
+                        {
+                            "floor_start": _r(f0),
+                            "floor_end": _r(f1),
+                            "floor_trend_r": _r(r, 2),
+                            "floor_trend": "rising" if rising else "flat",
+                        }
+                    )
+                    parts.append(
+                        f"{m} floor {f0:.0f} -> {f1:.0f} MB ({'RISING' if rising else 'flat'}), "
+                        f"raw {out[m]['first']} -> {out[m]['last']} MB"
+                    )
+                else:
+                    parts.append(f"{m} {out[m]['first']} -> {out[m]['last']} MB ({out[m]['trend']})")
                 break
         if "sys/gpu_util" in out:
             parts.append(f"GPU util median {out['sys/gpu_util']['median']}%")

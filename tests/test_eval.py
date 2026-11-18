@@ -16,13 +16,24 @@ class FakeMessages:
 
     async def create(self, **params):
         self.calls.append(params)
-        usage = NS(input_tokens=100, output_tokens=50, cache_read_input_tokens=900, cache_creation_input_tokens=0)
+        usage = NS(
+            input_tokens=100, output_tokens=50, cache_read_input_tokens=900, cache_creation_input_tokens=0
+        )
         if len(self.calls) == 1:
             block = NS(type="tool_use", id="t1", name="get_run_summary", input={"run_id": "r1"})
         else:
-            block = NS(type="tool_use", id="t2", name="submit_diagnosis", input={
-                "cause": "lr_too_high", "location": "config lr", "evidence": "update ratio 1e-2",
-                "fix": {"type": "config_change", "field": "lr", "value": "0.001", "name": ""}, "confidence": "high"})
+            block = NS(
+                type="tool_use",
+                id="t2",
+                name="submit_diagnosis",
+                input={
+                    "cause": "lr_too_high",
+                    "location": "config lr",
+                    "evidence": "update ratio 1e-2",
+                    "fix": {"type": "config_change", "field": "lr", "value": "0.001", "name": ""},
+                    "confidence": "high",
+                },
+            )
         return NS(content=[block], stop_reason="tool_use", usage=usage)
 
 
@@ -69,9 +80,54 @@ def test_sample_per_cause_is_stratified_and_deterministic():
 
 
 def test_grading():
-    truth = {"cause": "lr_too_high", "category": "optimization", "component": "config.lr",
-             "fixes": [{"type": "config_change", "field": "lr", "value": "default"}]}
-    g = grade({"cause": "lr_too_high", "location": "the learning rate", "evidence": "",
-               "fix": {"type": "config_change", "field": "learning_rate", "value": 1e-3}}, truth)
+    truth = {
+        "cause": "lr_too_high",
+        "category": "optimization",
+        "component": "config.lr",
+        "fixes": [{"type": "config_change", "field": "lr", "value": "default"}],
+    }
+    g = grade(
+        {
+            "cause": "lr_too_high",
+            "location": "the learning rate",
+            "evidence": "",
+            "fix": {"type": "config_change", "field": "learning_rate", "value": 1e-3},
+        },
+        truth,
+    )
     assert g == {"parsed": True, "cause_ok": True, "category_ok": True, "loc_ok": True, "fix_static_ok": True}
     assert not grade(None, truth)["cause_ok"]
+
+
+def test_tools_never_change_mid_conversation():
+    """Thinking blocks are bound to the exact prefix, so the tool list must stay identical every turn."""
+
+    class NoSubmitFirst(FakeMessages):
+        async def create(self, **params):
+            self.calls.append(params)
+            usage = NS(
+                input_tokens=1, output_tokens=1, cache_read_input_tokens=0, cache_creation_input_tokens=0
+            )
+            if len(self.calls) == 1:  # stops without calling any tool
+                return NS(
+                    content=[NS(type="text", text="thinking out loud")], stop_reason="end_turn", usage=usage
+                )
+            block = NS(
+                type="tool_use",
+                id="t",
+                name="submit_diagnosis",
+                input={
+                    "cause": "healthy",
+                    "location": "",
+                    "evidence": "",
+                    "confidence": "low",
+                    "fix": {"type": "none", "field": "", "value": "", "name": ""},
+                },
+            )
+            return NS(content=[block], stop_reason="tool_use", usage=usage)
+
+    client = FakeClient()
+    client.messages = NoSubmitFirst(client.calls)
+    tr = asyncio.run(diagnose(client, "claude-haiku-5-5", "x", FakeSession()))
+    assert tr.diagnosis["cause"] == "healthy"
+    assert len({str(c["tools"]) for c in client.calls}) == 1

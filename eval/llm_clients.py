@@ -139,7 +139,6 @@ async def diagnose(
             tools.append({"name": t.name, "description": t.description or "", "input_schema": schema})
     tools.append(SUBMIT_TOOL)
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_prompt}]
-    budget_exhausted = False
     try:
         for _ in range(max_tool_calls + 4):
             tr.turns += 1
@@ -149,7 +148,8 @@ async def diagnose(
                 # breakpoint 1: tools + system prompt are identical for every diagnosis, so this prefix is
                 # written once and then read from cache by every later run
                 system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
-                tools=[SUBMIT_TOOL] if budget_exhausted else tools,
+                # never change tools mid-conversation: thinking blocks are bound to the exact prefix
+                tools=tools,
                 messages=messages,
                 output_config={"effort": effort},
                 # breakpoint 2 (automatic, moves to the last block): each tool-use turn resends the whole
@@ -175,7 +175,6 @@ async def diagnose(
             if not uses:
                 if tr.diagnosis is None:
                     messages.append({"role": "user", "content": "Please call submit_diagnosis now."})
-                    budget_exhausted = True
                     continue
                 break
             results = []
@@ -187,7 +186,6 @@ async def diagnose(
                     results.append({"type": "tool_result", "tool_use_id": b.id, "content": "received"})
                     continue
                 if mcp_session is None or len(tr.tool_calls) >= max_tool_calls:
-                    budget_exhausted = True
                     results.append(
                         {
                             "type": "tool_result",
@@ -219,8 +217,6 @@ async def diagnose(
             messages.append({"role": "user", "content": results})
             if tr.diagnosis is not None:
                 break
-            if len(tr.tool_calls) >= max_tool_calls:
-                budget_exhausted = True
     except anthropic.APIStatusError as e:
         tr.error = f"api {e.status_code}: {e.message}"
     except anthropic.APIConnectionError as e:
