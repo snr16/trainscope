@@ -153,7 +153,7 @@ To add a detector, see `.claude/skills/add-detector/SKILL.md`. In short:
 ## Benchmark and evaluation
 
 ```bash
-python -m benchmark.run_scenarios --split dev --workers 4          # 20 failure types x 3 tasks x seeds
+python -m benchmark.run_scenarios --split dev --workers 4          # 16 failure types x 3 tasks x seeds
 python -m eval.harness --split dev --conditions E                  # detectors only (no API key)
 python -m eval.harness --split dev --conditions A B C D            # needs ANTHROPIC_API_KEY (env or .env)
 python -m eval.verify_fix results/eval/<tag>.jsonl                 # apply fixes, rerun, check recovery
@@ -169,6 +169,50 @@ There are three CPU-sized tasks with offline synthetic data:
 Failures are injected either as plausible config values or as hidden code bugs. Ground truth never reaches run names, configs or logs. Variants are split into dev and test by a stable hash.
 
 To add a scenario, see `.claude/skills/add-scenario/SKILL.md`.
+
+## Results
+
+The benchmark has 196 runs: 16 failure types plus healthy runs, across the three tasks. Detectors were tuned on the 89 **dev** runs. Every number below is from the 107 held-out **test** runs (90 broken, 17 healthy), evaluated once. The assistant is Claude Haiku 5.5 at medium effort, with at most 12 tool calls per diagnosis.
+
+**Can an assistant find the root cause?** Each condition gets the same question with different information:
+
+| Condition | Assistant sees | Correct cause | Fix recovered training¹ | Healthy runs called healthy | Cost / diagnosis |
+|---|---|---|---|---|---|
+| A | the training script's printed logs | 52.3% | 35.6% | 16 / 17 | $0.0005 |
+| B | a CSV of every logged metric + config | 66.4% | 58.9% | 16 / 17 | $0.0024 |
+| C | TrainScope MCP tools, no detector findings | 56.1% | 61.1% | 10 / 17 | $0.0029 |
+| **D** | **TrainScope MCP tools with detector findings** | **83.2%** | **76.7%** | **15 / 17** | **$0.0023** |
+| E | detectors alone (top finding, no LLM) | 86.0% | — | — | free |
+
+¹ Fix verification: the assistant's proposed fix is applied to each broken run (90 runs), the run is retrained, and the result counts only if training actually recovers.
+
+- **Full TrainScope (D) beats logs alone (A)** by 31 points on cause and 41 points on fixes that work.
+- **Raw tool access isn't enough.** Without the detector findings (C), the assistant spends its tool calls searching, does worse than a plain CSV (B), and calls 7 of 17 healthy runs broken.
+- **Detectors alone (E) are close to D on naming the cause, for free.** The assistant adds verified fixes and explanations, and corrects some detector misses: for example LR too high, 19/19 with D vs 15/19 with E.
+- **Consistency:** on a repeated 34-run subset, D gave the same accuracy each time (79.4%), while A and C varied by ±3 points.
+
+**Which signals matter?** Condition D with one signal family hidden at a time:
+
+| Hidden | Correct cause |
+|---|---|
+| nothing (full D) | 83.2% |
+| gradients and weights | 83.2% |
+| system metrics (memory, data-loader wait) | 77.6% |
+| data (label stats, sample ids) | 77.6% |
+| activations | 75.7% |
+
+Some failure types depend on a single family. Without system metrics, data-loader bottlenecks can't be diagnosed. Without sample ids, validation leakage can't either.
+
+**Detectors:**
+- **Accuracy:** dev 89/89 (the set they were tuned on), test 92/107 (86.0%).
+- **Detection latency:** replaying test runs step by step, the detectors settle on the right cause for 76 of 90 broken runs, at a median of 20% of the way into the run.
+
+**SDK overhead** (small CNN on Apple MPS, median step time): +1.2% at the default sampling (gradients every 50 steps, activations every 200). Sampling every step costs +424%.
+
+**Limits:**
+- **Synthetic data:** the tasks are small CPU-sized models on synthetic data, and the failures are injected. Real workloads (e.g. CIFAR-10 on a GPU) are not evaluated yet.
+- **One model:** only Claude Haiku 5.5 was tested.
+- **Shared author:** the detectors and the benchmark's failure types were written by the same author, so failures no detector targets are not measured.
 
 ## Development
 
